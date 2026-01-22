@@ -1,0 +1,77 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+	<PropertyGroup>
+		<OutputType>WinExe</OutputType>
+		<TargetFramework>net8.0-windows</TargetFramework>
+		<Nullable>enable</Nullable>
+		<UseWindowsForms>true</UseWindowsForms>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<ApplicationIcon>icon.ico</ApplicationIcon>
+		<AssemblyName>DepthClockWallpaper</AssemblyName>
+		<RootNamespace>DepthClockWallpaper</RootNamespace>
+		<Authors>Nurbek Fayziev</Authors>
+		<PublishSingleFile>true</PublishSingleFile>
+		<SelfContained>true</SelfContained>
+		<RuntimeIdentifier>win-x64</RuntimeIdentifier>
+		<PublishTrimmed>false</PublishTrimmed>
+		<StartupObject>DepthClockWallpaper.Program</StartupObject>
+	</PropertyGroup>
+	<PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
+	  <DebugType>full</DebugType>
+	</PropertyGroup>
+	<PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|AnyCPU'">
+	  <DebugType>full</DebugType>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<PackageReference Include="Microsoft.ML.OnnxRuntime.DirectML" Version="1.23.0" />
+		<PackageReference Include="SkiaSharp" Version="3.119.1" />
+		<PackageReference Include="SkiaSharp.NativeAssets.Win32" Version="3.119.1" />
+		<PackageReference Include="SkiaSharp.Views.WindowsForms" Version="3.119.1" />
+		<PackageReference Include="System.Drawing.Common" Version="8.0.1" />
+	</ItemGroup>
+
+	
+	<ItemGroup>
+		<EmbeddedResource Include="depth_anything_v2_small.onnx" />
+		<EmbeddedResource Include="depth_anything_v2_small.onnx.data" />
+		<EmbeddedResource Include="icon.ico" />
+	</ItemGroup>
+	
+	<ItemGroup>
+		<Content Include="icon.ico">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</Content>
+	</ItemGroup>
+	
+	<ItemGroup>
+	  <Content Remove="C:\Users\iamai\.nuget\packages\microsoft.ai.directml\1.15.4\build\..\bin\x64-win\DirectML.pdb" />
+	</ItemGroup>
+	
+	<ItemGroup>
+	  <Content Remove="C:\Users\iamai\.nuget\packages\microsoft.ai.directml\1.15.4\build\..\bin\x64-win\DirectML.Debug.dll" />
+	</ItemGroup>
+	
+	<ItemGroup>
+	  <Content Remove="C:\Users\iamai\.nuget\packages\microsoft.ai.directml\1.15.4\build\..\bin\x64-win\DirectML.Debug.pdb" />
+	</ItemGroup>
+	
+	<ItemGroup>
+	  <Content Remove="C:\Users\iamai\.nuget\packages\microsoft.ai.directml\1.15.4\build\..\bin\x64-win\DirectML.dll" />
+	</ItemGroup>
+	
+	<ItemGroup>
+	  <Content Remove="C:\Users\iamai\.nuget\packages\microsoft.ai.directml\1.15.4\build\..\bin\x64-win\DirectML.pdb" />
+	</ItemGroup>
+	
+	<ItemGroup>
+	  <Content Remove="C:\Users\iamai\.nuget\packages\microsoft.ai.directml\1.15.4\build\..\bin\x64-win\DirectML.Debug.dll" />
+	</ItemGroup>
+	
+	<ItemGroup>
+	  <Content Remove="C:\Users\iamai\.nuget\packages\microsoft.ai.directml\1.15.4\build\..\bin\x64-win\DirectML.Debug.pdb" />
+	</ItemGroup>
+	
+	<ItemGroup>
+	  <Content Remove="C:\Users\iamai\.nuget\packages\microsoft.ai.directml\1.15.4\build\..\bin\x64-win\DirectML.dll" />
+	</ItemGroup>
+</Project>

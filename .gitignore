@@ -1,0 +1,88 @@
+# DepthClockWallpaper - .gitignore
+
+# Build results
+[Dd]ebug/
+[Dd]ebugPublic/
+[Rr]elease/
+[Rr]eleases/
+x64/
+x86/
+[Ww][Ii][Nn]32/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+
+# Visual Studio cache/options
+.vs/
+.vscode/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# ONNX models (large files)
+*.onnx
+
+# Test wallpapers (optional - remove if you want to commit test images)
+wallpaper.jpg
+wallpaper.png
+test_wallpaper.*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+
+# NuGet
+*.nupkg
+*.snupkg
+.nuget/
+packages/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# User-specific files
+*.rsuser
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+bin/
+obj/
+depth_anything_v2/
+*.onnx
+*.onnx.data
+Properties/
+
+# JetBrains IDEs
+.idea/*
+*.iml
+*.iws
+out/*
+.idea/
+
+# VS
+*.CodeAnalysisLog.xml
+*.cache
+*.ilk
+*.meta
+*.pdb
+*.pgc
+*.pgd
+*.rsp
+.vs/
+DirectML.*
+
+# Python
+.venv/

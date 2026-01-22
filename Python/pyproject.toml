@@ -1,0 +1,36 @@
+[project]
+name = "depthclock-model-export"
+version = "1.0.0"
+description = "Model export utilities for DepthClockWallpaper"
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+    "torch>=2.0.0",
+    "torchvision>=0.15.0",
+    "onnx>=1.14.0",
+    "onnxscript>=0.1.0",
+    "huggingface-hub>=0.16.0",
+    "opencv-python>=4.5.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+]
+
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+py-modules = []
+
+[tool.black]
+line-length = 100
+target-version = ['py38']
+
+[tool.ruff]
+line-length = 100
+target-version = "py38"
