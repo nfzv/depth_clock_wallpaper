@@ -125,5 +125,8 @@ public class PerformanceConfig
     public string ExecutionProvider { get; set; } = "DirectML";
 
     [JsonPropertyName("debugPath")]
-    public string? DebugPath { get; set; } = null;
+    public string DebugPath { get; set; } = "debug/";
+
+    [JsonPropertyName("enableDebugMode")]
+    public bool EnableDebugMode { get; set; } = false;
 }

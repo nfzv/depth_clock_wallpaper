@@ -78,8 +78,17 @@ public class Compositor : IDisposable
         }
 
         // Step 4: Apply foreground mask to hide clock behind objects
-        ApplyForegroundMask(canvas, original, depthMask, debugPath);
-        Console.WriteLine("✓ Applied foreground mask");
+        // Check if mask has any foreground pixels (non-transparent)
+        bool hasForegroundPixels = HasMaskAnyForegroundPixels(depthMask);
+        if (hasForegroundPixels)
+        {
+            ApplyForegroundMask(canvas, original, depthMask, debugPath);
+            Console.WriteLine("✓ Applied foreground mask");
+        }
+        else
+        {
+            Console.WriteLine("✓ No foreground detected, clock rendered without masking");
+        }
 
         var result = SKBitmap.FromImage(surface.Snapshot());
         surface.Dispose();
@@ -92,6 +101,7 @@ public class Compositor : IDisposable
     {
         try
         {
+            Directory.CreateDirectory(basePath);
             var path = Path.Combine(basePath, $"{name}.png");
             using var image = SKImage.FromBitmap(bitmap);
             using var data = image.Encode(SKEncodedImageFormat.Png, 100);
@@ -109,6 +119,26 @@ public class Compositor : IDisposable
     {
         using var image = surface.Snapshot();
         SaveDebugImage(SKBitmap.FromImage(image), basePath, name);
+    }
+
+    /// <summary>
+    /// Checks if the mask has any foreground pixels (non-transparent).
+    /// Returns true if masking should be applied.
+    /// </summary>
+    private static bool HasMaskAnyForegroundPixels(SKBitmap mask)
+    {
+        if (mask == null || mask.IsEmpty)
+            return false;
+
+        for (int y = 0; y < mask.Height; y++)
+        {
+            for (int x = 0; x < mask.Width; x++)
+            {
+                if (mask.GetPixel(x, y).Alpha > 0)
+                    return true;
+            }
+        }
+        return false;
     }
 
     private SKFontStyle ParseFontStyle(string fontStyle)

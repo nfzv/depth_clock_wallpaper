@@ -44,6 +44,10 @@ public partial class SettingsForm : Form
     private NumericUpDown _shadowOffsetXBox;
     private NumericUpDown _shadowOffsetYBox;
 
+    // Debug settings controls
+    private CheckBox _enableDebugModeCheckBox;
+    private TextBox _debugPathTextBox;
+
     public SettingsForm()
     {
         _orchestrator = new HotWallpaperOrchestrator();
@@ -280,6 +284,23 @@ public partial class SettingsForm : Form
         };
         perfLayout.Controls.Add(_cacheDepthMaskCheckBox, 1, 0);
 
+        perfLayout.Controls.Add(CreateLabel("Enable Debug Mode:"), 0, 1);
+        _enableDebugModeCheckBox = new CheckBox
+        {
+            AutoSize = true,
+            Padding = new Padding(0, 4, 0, 0)
+        };
+        _enableDebugModeCheckBox.CheckedChanged += EnableDebugModeChanged;
+        perfLayout.Controls.Add(_enableDebugModeCheckBox, 1, 1);
+
+        perfLayout.Controls.Add(CreateLabel("Debug Path:"), 0, 2);
+        _debugPathTextBox = new TextBox
+        {
+            Width = 350,
+            Font = new Font("Segoe UI", 9F)
+        };
+        perfLayout.Controls.Add(_debugPathTextBox, 1, 2);
+
         perfGroup.Controls.Add(perfLayout);
         mainPanel.Controls.Add(perfGroup);
 
@@ -493,6 +514,15 @@ public partial class SettingsForm : Form
         }
     }
 
+    private void EnableDebugModeChanged(object? sender, EventArgs e)
+    {
+        _debugPathTextBox.Enabled = _enableDebugModeCheckBox.Checked;
+        if (!_enableDebugModeCheckBox.Checked)
+        {
+            _debugPathTextBox.Text = string.Empty;
+        }
+    }
+
     private void LoadCustomImages()
     {
         _imageComboBox.Items.Clear();
@@ -636,6 +666,9 @@ public partial class SettingsForm : Form
 
         // Performance settings
         _cacheDepthMaskCheckBox.Checked = _orchestrator.CurrentConfig.Performance.CacheDepthMask;
+        _enableDebugModeCheckBox.Checked = _orchestrator.CurrentConfig.Performance.EnableDebugMode;
+        _debugPathTextBox.Text = _orchestrator.CurrentConfig.Performance.DebugPath;
+        _debugPathTextBox.Enabled = _enableDebugModeCheckBox.Checked;
 
         // Depth settings
         _thresholdComboBox.SelectedIndex = _orchestrator.CurrentConfig.Depth.Threshold == "auto" ? 0 : 1;
@@ -693,13 +726,36 @@ public partial class SettingsForm : Form
         {
             Console.WriteLine("🔄 Applying settings via hot-reload...");
 
+            // Capture selected values BEFORE config update
+            bool isCustomMode = _modeComboBox.SelectedIndex == 0;
             string? newImagePath = null;
+
+            if (isCustomMode)
+            {
+                newImagePath = _imageComboBox.SelectedItem?.ToString() ?? _imageComboBox.Text;
+                if (!string.IsNullOrEmpty(newImagePath) && File.Exists(newImagePath))
+                {
+                    Console.WriteLine($"📁 Copying custom image to temp: {newImagePath}");
+                    try
+                    {
+                        File.Copy(newImagePath, WallpaperPaths.CustomWallpaper, true);
+                        Console.WriteLine($"✓ Custom image copied to: {WallpaperPaths.CustomWallpaper}");
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"❌ Failed to copy wallpaper: {ex.Message}");
+                        MessageBox.Show($"Failed to copy wallpaper image: {ex.Message}", "Error",
+                            MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        return;
+                    }
+                }
+            }
 
             // Use hot-reload instead of restarting
             HotConfigManager.UpdateConfig(config =>
             {
                 // Mode
-                config.Wallpaper.Mode = _modeComboBox.SelectedIndex == 0 ? EWallpaperMode.Custom : EWallpaperMode.Bing;
+                config.Wallpaper.Mode = isCustomMode ? EWallpaperMode.Custom : EWallpaperMode.Bing;
 
                 // Clock settings
                 config.Clock.Format = _timeFormatTextBox.Text;
@@ -721,37 +777,27 @@ public partial class SettingsForm : Form
                 // Performance settings
                 config.Performance.UpdateInterval = (int)_updateIntervalBox.Value * 60000;
                 config.Performance.CacheDepthMask = _cacheDepthMaskCheckBox.Checked;
+                config.Performance.EnableDebugMode = _enableDebugModeCheckBox.Checked;
+                config.Performance.DebugPath = _debugPathTextBox.Text;
 
                 // Depth settings
                 config.Depth.Threshold = _thresholdComboBox.SelectedIndex == 0 ? "auto" : "manual";
                 config.Depth.ThresholdPercentile = (float)_thresholdPercentileBox.Value;
                 config.Depth.MaskBlur = (float)_maskBlurBox.Value;
 
-                if (_modeComboBox.SelectedIndex == 0)
+                if (isCustomMode)
                 {
-                    // Custom image mode
-                    newImagePath = _imageComboBox.SelectedItem?.ToString() ?? _imageComboBox.Text;
-                    if (newImagePath != config.Wallpaper.Path && File.Exists(newImagePath))
+                    // Custom image mode - update path in config
+                    if (!string.IsNullOrEmpty(newImagePath) && File.Exists(newImagePath))
                     {
                         config.Wallpaper.Path = newImagePath;
-                        Console.WriteLine($"📁 Custom wallpaper changed to: {newImagePath}");
-
-                        // Copy custom image to temp location
-                        try
-                        {
-                            CopyCustomImageToTemp(newImagePath);
-                        }
-                        catch (Exception ex)
-                        {
-                            Console.WriteLine($"❌ Failed to copy wallpaper: {ex.Message}");
-                        }
+                        Console.WriteLine($"📁 Custom wallpaper path saved to config: {newImagePath}");
                     }
                 }
                 else
                 {
                     // Bing wallpaper mode
-                    config.Wallpaper.Path = ""; // Will be set by Bing service
-                    newImagePath = WallpaperPaths.BingWallpaper;
+                    config.Wallpaper.Path = "";
                     Console.WriteLine("🖼️ Switched to Bing wallpaper mode");
                 }
 
@@ -759,21 +805,21 @@ public partial class SettingsForm : Form
                 SetStartupEnabled(_launchOnStartupCheckBox.Checked);
             });
 
-            // Load wallpaper separately to avoid recursive calls during config update
-            if (!string.IsNullOrEmpty(newImagePath) && newImagePath != _orchestrator.CurrentConfig.Wallpaper.Path)
+            // Force wallpaper reload after config update
+            Task.Run(() =>
             {
-                Task.Run(() =>
+                try
                 {
-                    try
-                    {
-                        _orchestrator.LoadWallpaper();
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine($"❌ Failed to load wallpaper after settings: {ex.Message}");
-                    }
-                });
-            }
+                    // Small delay to ensure config is fully saved
+                    System.Threading.Thread.Sleep(100);
+                    _orchestrator.LoadWallpaper();
+                    Console.WriteLine("✓ Wallpaper reloaded after settings change");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"❌ Failed to reload wallpaper after settings: {ex.Message}");
+                }
+            });
 
             // Show success message
             MessageBox.Show("Settings applied successfully! Changes are now active.",
@@ -805,6 +851,18 @@ public partial class SettingsForm : Form
         ShowInTaskbar = true;
         BringToFront();
         Focus();
+    }
+
+    protected override void OnFormClosing(FormClosingEventArgs e)
+    {
+        if (e.CloseReason == CloseReason.UserClosing)
+        {
+            e.Cancel = true;
+            WindowState = FormWindowState.Minimized;
+            ShowInTaskbar = false;
+            Visible = false;
+        }
+        base.OnFormClosing(e);
     }
 
     private void ExitApplication()

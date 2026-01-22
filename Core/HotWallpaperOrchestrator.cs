@@ -68,7 +68,7 @@ public class HotWallpaperOrchestrator : IDisposable
         _compositor = new Compositor(CurrentConfig);
 
         // Check for debug mode
-        if (!string.IsNullOrEmpty(CurrentConfig.Performance.DebugPath))
+        if (CurrentConfig.Performance.EnableDebugMode)
         {
             Console.WriteLine($"[DEBUG] Debug mode enabled. Saving intermediate images to: {CurrentConfig.Performance.DebugPath}");
         }
@@ -210,7 +210,7 @@ public class HotWallpaperOrchestrator : IDisposable
         _currentFrame?.Dispose();
 
         // Render new frame with current config
-        var debugPath = !string.IsNullOrEmpty(CurrentConfig.Performance.DebugPath)
+        var debugPath = CurrentConfig.Performance.EnableDebugMode
             ? CurrentConfig.Performance.DebugPath
             : null;
         _currentFrame = _compositor.RenderFrame(

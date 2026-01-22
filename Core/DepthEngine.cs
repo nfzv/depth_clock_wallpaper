@@ -56,6 +56,13 @@ public sealed class DepthEngine : IDisposable
 
         try
         {
+            // Check if the depth map has significant variation
+            if (!HasSignificantDepth(depthMap))
+            {
+                Console.WriteLine("⚠️ No significant depth detected in image, creating transparent mask (clock will be fully visible)");
+                return CreateTransparentMask(image.Width, image.Height);
+            }
+
             float threshold = manualThreshold ?? CalculateOptimalThreshold(depthMap);
             Console.WriteLine($"Depth threshold: {threshold:F4}");
 
@@ -73,6 +80,56 @@ public sealed class DepthEngine : IDisposable
         {
             Array.Clear(depthMap, 0, depthMap.Length);
         }
+    }
+
+    /// <summary>
+    /// Checks if the depth map has significant depth variation.
+    /// Returns false if the image is essentially flat (no foreground objects).
+    /// </summary>
+    private static bool HasSignificantDepth(float[,] depthMap)
+    {
+        float min = float.MaxValue;
+        float max = float.MinValue;
+        float sum = 0;
+
+        foreach (var value in depthMap)
+        {
+            if (value < min) min = value;
+            if (value > max) max = value;
+            sum += value;
+        }
+
+        // Check range (max - min) for meaningful depth variation
+        float range = max - min;
+
+        // Also check if the depth values are essentially uniform
+        float mean = sum / depthMap.Length;
+        float varianceSum = 0;
+        foreach (var value in depthMap)
+        {
+            float diff = value - mean;
+            varianceSum += diff * diff;
+        }
+        float stdDev = (float)Math.Sqrt(varianceSum / depthMap.Length);
+
+        // Consider it significant if range > 0.01 or stdDev > 0.005
+        bool hasSignificantRange = range > 0.01f;
+        bool hasSignificantVariance = stdDev > 0.005f;
+
+        Console.WriteLine($"[Depth Analysis] Range: {range:F6}, StdDev: {stdDev:F6}, HasSignificantDepth: {hasSignificantRange || hasSignificantVariance}");
+
+        return hasSignificantRange || hasSignificantVariance;
+    }
+
+    /// <summary>
+    /// Creates a fully transparent mask (no foreground objects detected).
+    /// </summary>
+    private static SKBitmap CreateTransparentMask(int width, int height)
+    {
+        var mask = new SKBitmap(width, height, SKColorType.Rgba8888, SKAlphaType.Premul);
+        using var canvas = new SKCanvas(mask);
+        canvas.Clear(SKColors.Transparent);
+        return mask;
     }
 
     private static string? ExtractDebugPath()
