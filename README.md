@@ -19,6 +19,8 @@ A Windows desktop application that places your live clock within the three-dimen
 - **Customizable Clock**: Fonts, colors, shadows, position, and time format
 - **Daily Bing Wallpapers**: Automatically fetches beautiful Bing homepage images
 - **System Tray Operation**: Runs quietly in the background with minimal footprint
+- **Auto Clock Positioning**: Automatically finds the best position where the clock is least likely to be hidden by foreground objects
+- **Multiple Positioning Strategies**: Choose between Lowest Coverage, Edges First, or Smart Hybrid positioning algorithms
 
 ## How It Works
 
@@ -52,6 +54,13 @@ Right-click the DepthClockWallpaper icon in your system tray to access:
 
 - **Wallpaper Mode**: Choose between custom images or daily Bing wallpapers
 - **Clock Style**: Customize font, color, size, shadows, and position
+- **Position Mode**:
+  - **Auto Position Mode**: Automatically finds optimal clock position based on depth analysis
+  - **Max Coverage**: Sets the maximum allowed foreground coverage percentage (default: 30%)
+  - **Strategy**: Choose positioning algorithm:
+    - *Lowest Coverage*: Always picks position with least foreground coverage
+    - *Edges First*: Prefers corners and edges, falls back to lowest coverage
+    - *Smart Hybrid*: Tries corners → edges → center, then falls back to lowest coverage
 - **Depth Settings**: Adjust foreground detection threshold and mask blur
 - **Performance**: Toggle GPU acceleration and configure update intervals
 
@@ -116,18 +125,26 @@ cd DepthClockWallpaper
 # Once your model is near your executable or in root folder, you can run your app as usual e.g. dotnet run
 ```
 
-## Potential Improvements
+## Troubleshooting
 
-### 1. Resource Optimization
+### Debug Mode
+Enable debug mode to save intermediate images for troubleshooting:
+1. In Settings, enable "Enable Debug Mode"
+2. Set a debug path (e.g., `debug/`)
+3. Check the output images:
+   - `0_depth_map.png`: Raw depth estimation output
+   - `4_raw_mask.png`: Binary foreground mask before blur
+   - `4a_blurred_mask.png`: Softened mask with blur applied
 
-- Currently it uses ~400MBs of RAM in idle. So there is definitely a room to improvement. Maybe it keeps the model in memory, maybe we should unload it when not used?!
+### Clock Being Hidden
+If the clock is being hidden behind foreground objects:
 
-### 2. Alternative Models
-
-- **Depth-Anything-V2** small with input_size set to 1036 by default - consumes a lot of resources. Anything less than that size makes the mask edges really pixelly. Very inefficient. Though the blurring helps a lot, I don't think that's the way to go. Perhaps there are other models that are more efficient that outputs a similar quality?!
-
-- **Meta's Segment Anything Models**. Probably I don't know what I'm talking about or it would be really an overkill. I can imagine a model that could classify and label objects within a wallpaper and if we have a set of predefined object labels in code - we could place the clock in a more aesthetic position.
-
+1. **Enable Auto Position Mode**: The clock will automatically move to positions with less foreground coverage
+2. **Lower Max Coverage Setting**: Reduces the acceptable coverage percentage (try 20% or 15%)
+3. **Change Positioning Strategy**: 
+   - *Edges First* often works well as foreground objects are usually near the center
+   - *Smart Hybrid* provides a balance between aesthetics and visibility
+4. **Adjust Threshold Percentile**: A lower value makes the mask more selective (fewer objects considered "foreground")
 
 ## FAQ
 
@@ -139,6 +156,12 @@ A: Yes. In settings, switch to "Custom" mode and select your preferred image pat
 
 **Q: Does this work with animated wallpapers?**
 A: No, DepthClockWallpaper currently only supports static images. Animated wallpaper support is not planned but could be explored as a future enhancement. Depth-Anything-V2 does support video processing, though it's still theoretical. 
+
+**Q: The clock is still being hidden behind objects even with a high threshold percentile setting**
+A: See the Troubleshooting section above for detailed solutions. The key recommendations are:
+1. Enable "Auto Position Mode" for automatic position optimization
+2. Try a lower "Max Coverage" percentage setting
+3. Use "Edges First" or "Smart Hybrid" positioning strategy
 
 ## License
 

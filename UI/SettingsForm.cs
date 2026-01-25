@@ -1,17 +1,16 @@
-using SkiaSharp;
-using System.Drawing;
-using System.Runtime.InteropServices;
-using System.Windows.Forms;
-using System.Diagnostics;
 using DepthClockWallpaper.Core;
-using Microsoft.Win32;
 using DepthClockWallpaper.Models;
+using Microsoft.Extensions.Options;
+using Microsoft.Win32;
+using System.Diagnostics;
 
 namespace DepthClockWallpaper.UI;
 
 public partial class SettingsForm : Form
 {
-    private readonly HotWallpaperOrchestrator _orchestrator;
+    private readonly IOptionsMonitor<AppConfig> _config;
+    private readonly IWritableOptions<AppConfig> _writableConfig;
+    private readonly Orchestrator _orchestrator;
     private NotifyIcon _trayIcon;
     private System.Windows.Forms.Timer _bingUpdateTimer;
 
@@ -43,38 +42,59 @@ public partial class SettingsForm : Form
     private NumericUpDown _shadowBlurBox;
     private NumericUpDown _shadowOffsetXBox;
     private NumericUpDown _shadowOffsetYBox;
+    private NumericUpDown _fontSizeBox;
+
+    private CheckBox _autoPositionCheckBox;
+    private TrackBar _maxCoverageSlider;
+    private Label _maxCoverageLabel;
+    private Label _maxCoverageValueLabel;
+    private ComboBox _positionStrategyComboBox;
+    private Label _positionStrategyLabel;
+    private Label _manualPositionLabel;
 
     // Debug settings controls
     private CheckBox _enableDebugModeCheckBox;
     private TextBox _debugPathTextBox;
+    private Button _viewCrashLogsButton;
 
-    public SettingsForm()
+    public SettingsForm(Orchestrator orchestrator, IOptionsMonitor<AppConfig> config, IWritableOptions<AppConfig> writableConfig)
     {
-        _orchestrator = new HotWallpaperOrchestrator();
-        InitializeComponent();
-        InitializeTrayIcon();
-        LoadSettingsToUI();
+        _orchestrator = orchestrator;
+        _config = config;
+        _writableConfig = writableConfig;
 
-        // Initialize orchestrator with current wallpaper if available
-        var currentConfig = HotConfigManager.Current;
-        // Load wallpaper based on mode
-        Task.Run(() =>
+        try
         {
-            try
-            {
-                _orchestrator.LoadWallpaper();
-                _orchestrator.Start();
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"❌ Failed to load initial wallpaper: {ex.Message}");
-            }
-        });
+            InitializeComponent();
+            InitializeTrayIcon();
+            LoadSettingsToUI();
 
-        // Hide the main settings window initially
-        WindowState = FormWindowState.Minimized;
-        ShowInTaskbar = false;
-        Visible = false;
+            // Load wallpaper based on mode
+            Task.Run(() =>
+            {
+                try
+                {
+                    _orchestrator.UpdateWallpaper();
+                    _orchestrator.Start();
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Failed to load initial wallpaper: {ex.Message}");
+                }
+            });
+
+            // Hide the main settings window initially
+            WindowState = FormWindowState.Minimized;
+            ShowInTaskbar = false;
+            Visible = false;
+        }
+        catch (Exception ex)
+        {
+            CrashLogger.Log(ex);
+            MessageBox.Show($"Failed to start application. Crash report saved to crash.log.\n\n{ex.Message}",
+                "Startup Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            Environment.Exit(1);
+        }
     }
 
     private void InitializeComponent()
@@ -140,7 +160,7 @@ public partial class SettingsForm : Form
         {
             Minimum = 1,
             Maximum = 1440,
-            Value = decimal.Round((_orchestrator.CurrentConfig.Performance.UpdateInterval / 60000), 2),
+            Value = decimal.Round((_config.CurrentValue.Performance.UpdateInterval / 60000), 2),
             Width = 80,
             Font = new Font("Segoe UI", 9F)
         };
@@ -170,38 +190,90 @@ public partial class SettingsForm : Form
         {
             Width = 400,
             Font = new Font("Segoe UI", 9F),
-            Text = _orchestrator.CurrentConfig.Clock.Format
+            Text = _config.CurrentValue.Clock.Format
         };
         positionLayout.Controls.Add(_timeFormatTextBox, 1, 0);
 
+        _autoPositionCheckBox = new CheckBox
+        {
+            Text = "Auto Position Mode",
+            AutoSize = true,
+            Padding = new Padding(0, 6, 0, 0),
+            Checked = _config.CurrentValue.Clock.Position.AutoEnabled
+        };
+        _autoPositionCheckBox.CheckedChanged += (s, e) => UpdatePositionControlsEnabled();
+        positionLayout.Controls.Add(_autoPositionCheckBox, 0, 1);
+        positionLayout.Controls.Add(new Label(), 1, 1);
+
+        _positionStrategyLabel = CreateLabel("Strategy:");
+        positionLayout.Controls.Add(_positionStrategyLabel, 0, 2);
+        _positionStrategyComboBox = CreateComboBox(new[] { "Lowest Coverage", "Edges First", "Smart Hybrid" });
+        positionLayout.Controls.Add(_positionStrategyComboBox, 1, 2);
+
+        _maxCoverageLabel = CreateLabel("Max Coverage:");
+        positionLayout.Controls.Add(_maxCoverageLabel, 0, 3);
+        var coveragePanel = new FlowLayoutPanel
+        {
+            FlowDirection = FlowDirection.LeftToRight,
+            AutoSize = true,
+            Margin = new Padding(0)
+        };
+        _maxCoverageSlider = new TrackBar
+        {
+            Minimum = 0,
+            Maximum = 100,
+            TickFrequency = 10,
+            Width = 250,
+            Value = (int)(_config.CurrentValue.Clock.Position.MaxCoveragePercent * 100)
+        };
+        _maxCoverageValueLabel = new Label
+        {
+            Text = $"{_maxCoverageSlider.Value}%",
+            AutoSize = true,
+            Padding = new Padding(5, 6, 0, 0),
+            Font = new Font("Segoe UI", 9F)
+        };
+        _maxCoverageSlider.ValueChanged += (s, e) => _maxCoverageValueLabel.Text = $"{_maxCoverageSlider.Value}%";
+        coveragePanel.Controls.Add(_maxCoverageSlider);
+        coveragePanel.Controls.Add(_maxCoverageValueLabel);
+        positionLayout.Controls.Add(coveragePanel, 1, 3);
+
+        _manualPositionLabel = CreateLabel("Manual Position (disabled in auto mode)");
+        _manualPositionLabel.ForeColor = Color.Gray;
+        _manualPositionLabel.Padding = new Padding(0, 15, 0, 0);
+        positionLayout.Controls.Add(_manualPositionLabel, 0, 4);
+        positionLayout.Controls.Add(new Label(), 1, 4);
+
         _horizontalLabel = CreateLabel("Horizontal: 50%");
-        positionLayout.Controls.Add(_horizontalLabel, 0, 1);
+        positionLayout.Controls.Add(_horizontalLabel, 0, 5);
         _horizontalSlider = new TrackBar
         {
             Minimum = 0,
             Maximum = 100,
             TickFrequency = 10,
             Width = 400,
-            Value = (int)(_orchestrator.CurrentConfig.Clock.Position.Horizontal * 100)
+            Value = (int)(_config.CurrentValue.Clock.Position.Horizontal * 100)
         };
         _horizontalSlider.ValueChanged += (s, e) => _horizontalLabel.Text = $"Horizontal: {_horizontalSlider.Value}%";
-        positionLayout.Controls.Add(_horizontalSlider, 1, 1);
+        positionLayout.Controls.Add(_horizontalSlider, 1, 5);
 
         _verticalLabel = CreateLabel("Vertical: 50%");
-        positionLayout.Controls.Add(_verticalLabel, 0, 2);
+        positionLayout.Controls.Add(_verticalLabel, 0, 6);
         _verticalSlider = new TrackBar
         {
             Minimum = 0,
             Maximum = 100,
             TickFrequency = 10,
             Width = 400,
-            Value = (int)(_orchestrator.CurrentConfig.Clock.Position.Vertical * 100)
+            Value = (int)(_config.CurrentValue.Clock.Position.Vertical * 100)
         };
         _verticalSlider.ValueChanged += (s, e) => _verticalLabel.Text = $"Vertical: {_verticalSlider.Value}%";
-        positionLayout.Controls.Add(_verticalSlider, 1, 2);
+        positionLayout.Controls.Add(_verticalSlider, 1, 6);
 
         positionGroup.Controls.Add(positionLayout);
         mainPanel.Controls.Add(positionGroup);
+
+        UpdatePositionControlsEnabled();
 
         // === CLOCK STYLE SECTION ===
         var styleGroup = CreateGroupBox("Clock Style");
@@ -216,10 +288,14 @@ public partial class SettingsForm : Form
         _fontStyleComboBox = CreateComboBox(new[] { "Regular", "Bold", "Italic", "Bold Italic" });
         styleLayout.Controls.Add(_fontStyleComboBox, 1, 1);
 
-        styleLayout.Controls.Add(CreateLabel("Clock Color:"), 0, 2);
+        styleLayout.Controls.Add(CreateLabel("Font Size:"), 0, 2);
+        _fontSizeBox = CreateNumericUpDown(1, 200, 9.6m, 2, 1m);
+        styleLayout.Controls.Add(_fontSizeBox, 1, 2);
+
+        styleLayout.Controls.Add(CreateLabel("Clock Color:"), 0, 3);
         _clockColorButton = CreateColorButton("#FFFFFF", Color.White, Color.Black);
         _clockColorButton.Click += (s, e) => ShowColorDialog(_clockColorButton);
-        styleLayout.Controls.Add(_clockColorButton, 1, 2);
+        styleLayout.Controls.Add(_clockColorButton, 1, 3);
 
         styleGroup.Controls.Add(styleLayout);
         mainPanel.Controls.Add(styleGroup);
@@ -317,6 +393,20 @@ public partial class SettingsForm : Form
         };
         systemLayout.Controls.Add(_launchOnStartupCheckBox, 1, 0);
 
+        systemLayout.Controls.Add(CreateLabel("View Crash Logs:"), 0, 1);
+        _viewCrashLogsButton = new Button
+        {
+            Text = "Open crash.log",
+            Width = 120,
+            Height = 26,
+            FlatStyle = FlatStyle.System,
+            Font = new Font("Segoe UI", 9F),
+            Cursor = Cursors.Hand,
+            Enabled = CrashLogger.CrashLogExists()
+        };
+        _viewCrashLogsButton.Click += ViewCrashLogs;
+        systemLayout.Controls.Add(_viewCrashLogsButton, 1, 1);
+
         systemGroup.Controls.Add(systemLayout);
         mainPanel.Controls.Add(systemGroup);
 
@@ -341,7 +431,7 @@ public partial class SettingsForm : Form
             Cursor = Cursors.Hand
         };
         _applyButton.FlatAppearance.BorderSize = 0;
-        _applyButton.Click += ApplySettings;
+        _applyButton.Click += async (sender, e) => await ApplySettings();
         buttonPanel.Controls.Add(_applyButton);
 
         _openTempFolderButton = new Button
@@ -366,6 +456,7 @@ public partial class SettingsForm : Form
         Controls.Add(scrollPanel);
 
         ModeChanged(null, null);
+        UpdatePositionControlsEnabled();
     }
 
     // Helper methods for consistent styling
@@ -523,6 +614,41 @@ public partial class SettingsForm : Form
         }
     }
 
+    private void UpdatePositionControlsEnabled()
+    {
+        bool autoEnabled = _autoPositionCheckBox?.Checked ?? true;
+
+        if (_positionStrategyComboBox != null)
+            _positionStrategyComboBox.Enabled = autoEnabled;
+
+        if (_positionStrategyLabel != null)
+            _positionStrategyLabel.Enabled = autoEnabled;
+
+        if (_maxCoverageSlider != null)
+            _maxCoverageSlider.Enabled = autoEnabled;
+
+        if (_maxCoverageLabel != null)
+            _maxCoverageLabel.Enabled = autoEnabled;
+
+        if (_maxCoverageValueLabel != null)
+            _maxCoverageValueLabel.Enabled = autoEnabled;
+
+        if (_horizontalSlider != null)
+        {
+            _horizontalSlider.Enabled = !autoEnabled;
+            _horizontalLabel.Enabled = !autoEnabled;
+        }
+
+        if (_verticalSlider != null)
+        {
+            _verticalSlider.Enabled = !autoEnabled;
+            _verticalLabel.Enabled = !autoEnabled;
+        }
+
+        if (_manualPositionLabel != null)
+            _manualPositionLabel.Visible = !autoEnabled;
+    }
+
     private void LoadCustomImages()
     {
         _imageComboBox.Items.Clear();
@@ -541,14 +667,14 @@ public partial class SettingsForm : Form
             if (File.Exists(path))
             {
                 _imageComboBox.Items.Add(path);
-                if (path == _orchestrator.CurrentConfig.Wallpaper.Path)
+                if (path == _config.CurrentValue.Wallpaper.Path)
                     _imageComboBox.SelectedItem = path;
             }
         }
 
-        if (_imageComboBox.SelectedIndex == -1 && !string.IsNullOrEmpty(_orchestrator.CurrentConfig.Wallpaper.Path))
+        if (_imageComboBox.SelectedIndex == -1 && !string.IsNullOrEmpty(_config.CurrentValue.Wallpaper.Path))
         {
-            _imageComboBox.Text = _orchestrator.CurrentConfig.Wallpaper.Path;
+            _imageComboBox.Text = _config.CurrentValue.Wallpaper.Path;
         }
     }
 
@@ -580,10 +706,10 @@ public partial class SettingsForm : Form
                 _lastBingUpdateLabel.ForeColor = Color.Green;
 
                 // Check if we're in Bing mode and need to reload
-                if (_orchestrator.CurrentConfig.Wallpaper.Mode == EWallpaperMode.Bing)
+                if (_config.CurrentValue.Wallpaper.Mode == EWallpaperMode.Bing)
                 {
                     Console.WriteLine("Bing image updated, reloading wallpaper...");
-                    _orchestrator.LoadWallpaper();
+                    _orchestrator.UpdateWallpaper();
                 }
             }
         }
@@ -626,6 +752,32 @@ public partial class SettingsForm : Form
         }
     }
 
+    private void ViewCrashLogs(object? sender, EventArgs e)
+    {
+        try
+        {
+            var crashLogPath = CrashLogger.GetCrashLogPath();
+            if (File.Exists(crashLogPath))
+            {
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = crashLogPath,
+                    UseShellExecute = true
+                });
+            }
+            else
+            {
+                MessageBox.Show("No crash log file found.", "Information",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Failed to open crash log: {ex.Message}", "Error",
+                MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+
     private void ShowColorDialog(Button colorButton)
     {
         var colorDialog = new ColorDialog
@@ -649,47 +801,52 @@ public partial class SettingsForm : Form
     private void LoadSettingsToUI()
     {
         // Mode
-        _modeComboBox.SelectedIndex = _orchestrator.CurrentConfig.Wallpaper.Mode == EWallpaperMode.Custom ? 0 : 1;
+        _modeComboBox.SelectedIndex = _config.CurrentValue.Wallpaper.Mode == EWallpaperMode.Custom ? 0 : 1;
 
         // Time format
-        _timeFormatTextBox.Text = _orchestrator.CurrentConfig.Clock.Format;
+        _timeFormatTextBox.Text = _config.CurrentValue.Clock.Format;
 
         // Position
-        _horizontalSlider.Value = (int)(_orchestrator.CurrentConfig.Clock.Position.Horizontal * 100);
-        _verticalSlider.Value = (int)(_orchestrator.CurrentConfig.Clock.Position.Vertical * 100);
+        _autoPositionCheckBox.Checked = _config.CurrentValue.Clock.Position.AutoEnabled;
+        _positionStrategyComboBox.SelectedIndex = (int)_config.CurrentValue.Clock.Position.Strategy;
+        _maxCoverageSlider.Value = (int)(_config.CurrentValue.Clock.Position.MaxCoveragePercent * 100);
+        _maxCoverageValueLabel.Text = $"{_maxCoverageSlider.Value}%";
+        _horizontalSlider.Value = (int)(_config.CurrentValue.Clock.Position.Horizontal * 100);
+        _verticalSlider.Value = (int)(_config.CurrentValue.Clock.Position.Vertical * 100);
 
         // Update interval
-        _updateIntervalBox.Value = _orchestrator.CurrentConfig.Performance.UpdateInterval / 60000;
+        _updateIntervalBox.Value = _config.CurrentValue.Performance.UpdateInterval / 60000;
 
         // Launch on startup
         _launchOnStartupCheckBox.Checked = IsStartupEnabled();
 
         // Performance settings
-        _cacheDepthMaskCheckBox.Checked = _orchestrator.CurrentConfig.Performance.CacheDepthMask;
-        _enableDebugModeCheckBox.Checked = _orchestrator.CurrentConfig.Performance.EnableDebugMode;
-        _debugPathTextBox.Text = _orchestrator.CurrentConfig.Performance.DebugPath;
+        _cacheDepthMaskCheckBox.Checked = _config.CurrentValue.Performance.CacheDepthMask;
+        _enableDebugModeCheckBox.Checked = _config.CurrentValue.Performance.EnableDebugMode;
+        _debugPathTextBox.Text = _config.CurrentValue.Performance.DebugPath;
         _debugPathTextBox.Enabled = _enableDebugModeCheckBox.Checked;
 
         // Depth settings
-        _thresholdComboBox.SelectedIndex = _orchestrator.CurrentConfig.Depth.Threshold == "auto" ? 0 : 1;
-        _thresholdPercentileBox.Value = (decimal)_orchestrator.CurrentConfig.Depth.ThresholdPercentile;
-        _maskBlurBox.Value = (decimal)_orchestrator.CurrentConfig.Depth.MaskBlur;
+        _thresholdComboBox.SelectedIndex = _config.CurrentValue.Depth.Threshold == EDepthThresholdMode.Auto ? 0 : 1;
+        _thresholdPercentileBox.Value = (decimal)_config.CurrentValue.Depth.ThresholdPercentile;
+        _maskBlurBox.Value = (decimal)_config.CurrentValue.Depth.MaskBlur;
 
         // Clock style settings
-        _fontFamilyComboBox.SelectedItem = _orchestrator.CurrentConfig.Clock.Style.FontFamily;
-        _fontStyleComboBox.SelectedItem = _orchestrator.CurrentConfig.Clock.Style.FontStyle;
+        _fontFamilyComboBox.SelectedItem = _config.CurrentValue.Clock.Style.FontFamily;
+        _fontStyleComboBox.SelectedItem = _config.CurrentValue.Clock.Style.FontStyle;
+        _fontSizeBox.Value = (decimal)_config.CurrentValue.Clock.Style.FontSize;
 
         // Clock color
-        _clockColorButton.Text = _orchestrator.CurrentConfig.Clock.Style.Color;
-        _clockColorButton.BackColor = ColorTranslator.FromHtml(_orchestrator.CurrentConfig.Clock.Style.Color);
+        _clockColorButton.Text = _config.CurrentValue.Clock.Style.Color;
+        _clockColorButton.BackColor = ColorTranslator.FromHtml(_config.CurrentValue.Clock.Style.Color);
 
         // Shadow settings
-        _shadowColorButton.Text = _orchestrator.CurrentConfig.Clock.Style.ShadowColor;
-        _shadowColorButton.BackColor = ColorTranslator.FromHtml(_orchestrator.CurrentConfig.Clock.Style.ShadowColor);
-        _shadowOpacityBox.Value = (decimal)_orchestrator.CurrentConfig.Clock.Style.ShadowOpacity;
-        _shadowBlurBox.Value = (decimal)_orchestrator.CurrentConfig.Clock.Style.ShadowBlur;
-        _shadowOffsetXBox.Value = (decimal)_orchestrator.CurrentConfig.Clock.Style.ShadowOffset.X;
-        _shadowOffsetYBox.Value = (decimal)_orchestrator.CurrentConfig.Clock.Style.ShadowOffset.Y;
+        _shadowColorButton.Text = _config.CurrentValue.Clock.Style.ShadowColor;
+        _shadowColorButton.BackColor = ColorTranslator.FromHtml(_config.CurrentValue.Clock.Style.ShadowColor);
+        _shadowOpacityBox.Value = (decimal)_config.CurrentValue.Clock.Style.ShadowOpacity;
+        _shadowBlurBox.Value = (decimal)_config.CurrentValue.Clock.Style.ShadowBlur;
+        _shadowOffsetXBox.Value = (decimal)_config.CurrentValue.Clock.Style.ShadowOffset.X;
+        _shadowOffsetYBox.Value = (decimal)_config.CurrentValue.Clock.Style.ShadowOffset.Y;
 
         // Adjust button text colors for readability
         var clockBrightness = (_clockColorButton.BackColor.R * 299 + _clockColorButton.BackColor.G * 587 + _clockColorButton.BackColor.B * 114) / 1000;
@@ -700,10 +857,10 @@ public partial class SettingsForm : Form
     }
 
     private bool _isApplyingSettings = false;
-    private readonly char[] _spinnerChars = { '|', '/', '-', '\\' };
+    private readonly string[] _spinnerChars = { ".", "..", "..." };
     private int _spinnerIndex = 0;
 
-    private void ApplySettings(object? sender, EventArgs e)
+    private async Task ApplySettings()
     {
         if (_isApplyingSettings) return;
         _isApplyingSettings = true;
@@ -718,7 +875,7 @@ public partial class SettingsForm : Form
         spinnerTimer.Tick += (s, args) =>
         {
             _spinnerIndex = (_spinnerIndex + 1) % _spinnerChars.Length;
-            _applyButton.Text = $"Applying... {_spinnerChars[_spinnerIndex]}";
+            _applyButton.Text = $"Applying{_spinnerChars[_spinnerIndex]}";
         };
         spinnerTimer.Start();
 
@@ -752,19 +909,23 @@ public partial class SettingsForm : Form
             }
 
             // Use hot-reload instead of restarting
-            HotConfigManager.UpdateConfig(config =>
+            await _writableConfig.UpdateAsync(config =>
             {
                 // Mode
                 config.Wallpaper.Mode = isCustomMode ? EWallpaperMode.Custom : EWallpaperMode.Bing;
 
                 // Clock settings
                 config.Clock.Format = _timeFormatTextBox.Text;
+                config.Clock.Position.AutoEnabled = _autoPositionCheckBox.Checked;
+                config.Clock.Position.Strategy = (EPositionStrategy)_positionStrategyComboBox.SelectedIndex;
+                config.Clock.Position.MaxCoveragePercent = _maxCoverageSlider.Value / 100f;
                 config.Clock.Position.Horizontal = _horizontalSlider.Value / 100f;
                 config.Clock.Position.Vertical = _verticalSlider.Value / 100f;
 
                 // Clock style
                 config.Clock.Style.FontFamily = _fontFamilyComboBox.SelectedItem?.ToString() ?? "Segoe UI";
                 config.Clock.Style.FontStyle = _fontStyleComboBox.SelectedItem?.ToString() ?? "Bold";
+                config.Clock.Style.FontSize = (float)_fontSizeBox.Value;
                 config.Clock.Style.Color = _clockColorButton.Text;
 
                 // Shadow settings
@@ -781,7 +942,7 @@ public partial class SettingsForm : Form
                 config.Performance.DebugPath = _debugPathTextBox.Text;
 
                 // Depth settings
-                config.Depth.Threshold = _thresholdComboBox.SelectedIndex == 0 ? "auto" : "manual";
+                config.Depth.Threshold = _thresholdComboBox.SelectedIndex == 0 ? EDepthThresholdMode.Auto : EDepthThresholdMode.Manual;
                 config.Depth.ThresholdPercentile = (float)_thresholdPercentileBox.Value;
                 config.Depth.MaskBlur = (float)_maskBlurBox.Value;
 
@@ -806,13 +967,13 @@ public partial class SettingsForm : Form
             });
 
             // Force wallpaper reload after config update
-            Task.Run(() =>
+            await Task.Run(() =>
             {
                 try
                 {
                     // Small delay to ensure config is fully saved
-                    System.Threading.Thread.Sleep(100);
-                    _orchestrator.LoadWallpaper();
+                    Thread.Sleep(100);
+                    _orchestrator.UpdateWallpaper();
                     Console.WriteLine("✓ Wallpaper reloaded after settings change");
                 }
                 catch (Exception ex)
@@ -928,7 +1089,7 @@ public partial class SettingsForm : Form
                 .Select(f => f.Name)
                 .OrderBy(name => name)
                 .ToArray();
-            
+
             return fontFamilies.Length > 0 ? fontFamilies : new[] { "Segoe UI", "Arial", "Times New Roman" };
         }
         catch (Exception ex)

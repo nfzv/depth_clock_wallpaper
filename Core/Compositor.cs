@@ -1,5 +1,10 @@
 using DepthClockWallpaper.Models;
+using Microsoft.Extensions.Options;
 using SkiaSharp;
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 
 namespace DepthClockWallpaper.Core;
 
@@ -8,24 +13,8 @@ namespace DepthClockWallpaper.Core;
 /// applying the depth mask to create the illusion of the clock existing
 /// within the three-dimensional space of the photograph.
 /// </summary>
-public class Compositor : IDisposable
+public class Compositor(IOptionsMonitor<AppConfig> config)
 {
-    private SKTypeface? _typeface;
-    private bool _disposed;
-
-    private readonly AppConfig _config;
-
-    public Compositor(AppConfig config)
-    {
-        _config = config;
-        Console.WriteLine("Initializing Compositor...");
-
-        // Parse font style
-        var fontStyle = ParseFontStyle(_config.Clock.Style.FontStyle);
-        _typeface = SKTypeface.FromFamilyName(_config.Clock.Style.FontFamily, fontStyle);
-
-        Console.WriteLine($"✓ Compositor initialized with {_config.Clock.Style.FontFamily} {_config.Clock.Style.FontStyle}");
-    }
 
     /// <summary>
     /// Renders a complete frame with the clock composited into the scene.
@@ -34,13 +23,14 @@ public class Compositor : IDisposable
     /// <param name="depthMask">The foreground mask (white = in front of clock)</param>
     /// <param name="timeText">The time string to render</param>
     /// <param name="debugPath">Optional path to save debug images for troubleshooting</param>
-    public SKBitmap RenderFrame(SKBitmap original, SKBitmap depthMask, string timeText, string? debugPath = null)
+    public SKBitmap RenderFrame(SKBitmap original, SKBitmap depthMask, string timeText)
     {
         Console.WriteLine($"Compositing frame: wallpaper + clock + foreground mask");
 
         var info = new SKImageInfo(original.Width, original.Height);
-        var surface = SKSurface.Create(info);
+        using var surface = SKSurface.Create(info);
         var canvas = surface.Canvas;
+        var debugPath = config.CurrentValue.Performance.EnableDebugMode ? config.CurrentValue.Performance.DebugPath : null;
 
         // Step 1: Draw the base wallpaper
         canvas.DrawBitmap(original, 0, 0);
@@ -59,7 +49,7 @@ public class Compositor : IDisposable
         clockCanvas.Clear(SKColors.Transparent);
 
         // Draw clock on transparent surface
-        DrawClock(clockCanvas, timeText, original.Width, original.Height);
+        DrawClock(clockCanvas, timeText, original.Width, original.Height, depthMask);
         Console.WriteLine("✓ Drew clock on transparent surface");
 
         if (debugPath != null)
@@ -73,12 +63,10 @@ public class Compositor : IDisposable
 
         if (debugPath != null)
         {
-            using var snapshotImage = surface.Snapshot();
-            SaveDebugImage(SKBitmap.FromImage(snapshotImage), debugPath, "3_wallpaper_plus_clock");
+            SaveDebugImage(surface, debugPath, "3_wallpaper_plus_clock");
         }
 
         // Step 4: Apply foreground mask to hide clock behind objects
-        // Check if mask has any foreground pixels (non-transparent)
         bool hasForegroundPixels = HasMaskAnyForegroundPixels(depthMask);
         if (hasForegroundPixels)
         {
@@ -91,8 +79,6 @@ public class Compositor : IDisposable
         }
 
         var result = SKBitmap.FromImage(surface.Snapshot());
-        surface.Dispose();
-
         Console.WriteLine("✓ Frame compositing complete");
         return result;
     }
@@ -173,35 +159,50 @@ public class Compositor : IDisposable
     /// <summary>
     /// Draws the clock text with a subtle shadow for depth.
     /// </summary>
-    private void DrawClock(SKCanvas canvas, string timeText, int width, int height)
+    private void DrawClock(SKCanvas canvas, string timeText, int width, int height, SKBitmap? foregroundMask)
     {
+        // Parse font style
+        var fontStyle = ParseFontStyle(config.CurrentValue.Clock.Style.FontStyle);
+        using var typeface = SKTypeface.FromFamilyName(config.CurrentValue.Clock.Style.FontFamily, fontStyle);
+        using var font = new SKFont(typeface, CalculateOptimalTextSize(width));
+
         using var paint = new SKPaint
         {
-            Color = ParseColor(_config.Clock.Style.Color),
-            TextSize = CalculateOptimalTextSize(width),
+            Color = ParseColor(config.CurrentValue.Clock.Style.Color),
             IsAntialias = true,
-            Typeface = _typeface,
             ImageFilter = SKImageFilter.CreateDropShadow(
                 0, 6, 12, 12,
                 SKColors.Black.WithAlpha(160)
             )
         };
 
-        // Measure text bounds for centering
         var bounds = new SKRect();
-        paint.MeasureText(timeText, ref bounds);
+        font.MeasureText(timeText, out bounds);
 
-        // Position using both horizontal and vertical from config
-        float x = width * _config.Clock.Position.Horizontal - bounds.Width / 2 - bounds.Left;
+        float x, y;
 
-        // Position vertically - verticalPosition is from top (0.0 = top, 1.0 = bottom)
-        float y = height * _config.Clock.Position.Vertical;
+        if (config.CurrentValue.Clock.Position.AutoEnabled && foregroundMask != null && !foregroundMask.IsEmpty)
+        {
+            var (h, v) = CalculateOptimalPosition(
+                foregroundMask, width, height, bounds,
+                config.CurrentValue.Clock.Position.MaxCoveragePercent);
 
-        Console.WriteLine($"Clock position: X={x:F1}, Y={y:F1}, TextSize={paint.TextSize:F1}");
+            x = width * h - bounds.Width / 2 - bounds.Left;
+            y = height * v;
+
+            Console.WriteLine($"[Auto] Position: H={h:P0}, V={v:P0}");
+        }
+        else
+        {
+            x = width * config.CurrentValue.Clock.Position.Horizontal - bounds.Width / 2 - bounds.Left;
+            y = height * config.CurrentValue.Clock.Position.Vertical;
+        }
+
+        Console.WriteLine($"Clock position: X={x:F1}, Y={y:F1}, TextSize={font.Size:F1}");
         Console.WriteLine($"Text bounds: Width={bounds.Width:F1}, Height={bounds.Height:F1}");
         Console.WriteLine($"Time text: '{timeText}'");
 
-        canvas.DrawText(timeText, x, y, paint);
+        canvas.DrawText(timeText, x, y, SKTextAlign.Center, font, paint);
     }
 
     /// <summary>
@@ -215,7 +216,7 @@ public class Compositor : IDisposable
         {
             mask = depthMask.Resize(
                 new SKImageInfo(original.Width, original.Height),
-                SKFilterQuality.High
+                SKSamplingOptions.Default
             );
         }
 
@@ -225,7 +226,7 @@ public class Compositor : IDisposable
         }
 
         // Apply Gaussian blur for soft edges (the "atmospheric" quality)
-        var blurredMask = ApplyGaussianBlur(mask, _config.Depth.MaskBlur);
+        var blurredMask = ApplyGaussianBlur(mask, config.CurrentValue.Depth.MaskBlur);
 
         if (debugPath != null)
         {
@@ -293,20 +294,125 @@ public class Compositor : IDisposable
     }
 
     /// <summary>
-    /// Calculates optimal text size based on screen width.
+    /// Gets the configured text size for the clock.
     /// </summary>
     private float CalculateOptimalTextSize(int screenWidth)
     {
-        // Scale text size: 200px for 1920px width (larger and more visible)
-        return screenWidth / 9.6f;
+        return screenWidth / config.CurrentValue.Clock.Style.FontSize;
     }
 
-    public void Dispose()
-    {
-        if (_disposed) return;
 
-        _typeface?.Dispose();
-        _disposed = true;
-        GC.SuppressFinalize(this);
+    private (float horizontal, float vertical) CalculateOptimalPosition(
+        SKBitmap foregroundMask, int screenWidth, int screenHeight,
+        SKRect clockBounds, float maxCoveragePercent)
+    {
+        var candidates = new[]
+        {
+            (0.25f, 0.25f), (0.50f, 0.25f), (0.85f, 0.25f),
+            (0.25f, 0.50f), (0.50f, 0.50f), (0.85f, 0.50f),
+            (0.25f, 0.85f), (0.50f, 0.85f), (0.85f, 0.85f)
+        };
+
+        var results = new List<(float h, float v, float coverage)>();
+
+        foreach (var (h, v) in candidates)
+        {
+            float coverage = CalculateCoverageAt(foregroundMask, h, v, clockBounds, screenWidth, screenHeight);
+            results.Add((h, v, coverage));
+        }
+
+        return config.CurrentValue.Clock.Position.Strategy switch
+        {
+            EPositionStrategy.EdgesFirst => FindBestEdgeFirst(results, maxCoveragePercent),
+            EPositionStrategy.SmartHybrid => FindSmartHybrid(results, maxCoveragePercent),
+            EPositionStrategy.LowestCoverage or _ => (
+                results.OrderBy(r => r.coverage).First().h,
+                results.OrderBy(r => r.coverage).First().v
+            )
+        };
+    }
+
+    private (float h, float v) FindBestEdgeFirst(
+        List<(float h, float v, float coverage)> results, float maxCoveragePercent)
+    {
+        var edgePositions = new[] { 0, 2, 6, 8 };
+        var centerPositions = new[] { 4 };
+
+        foreach (var idx in edgePositions)
+        {
+            if (results[idx].coverage <= maxCoveragePercent)
+                return (results[idx].h, results[idx].v);
+        }
+
+        foreach (var idx in centerPositions)
+        {
+            if (results[idx].coverage <= maxCoveragePercent)
+                return (results[idx].h, results[idx].v);
+        }
+
+        var best = results.OrderBy(r => r.coverage).First();
+        return (best.h, best.v);
+    }
+
+    private (float h, float v) FindSmartHybrid(
+        List<(float h, float v, float coverage)> results, float maxCoveragePercent)
+    {
+        var corners = new[] { 0, 2, 6, 8 };
+        var edges = new[] { 1, 3, 5, 7 };
+        var center = 4;
+
+        foreach (var idx in corners)
+        {
+            if (results[idx].coverage <= maxCoveragePercent)
+                return (results[idx].h, results[idx].v);
+        }
+
+        foreach (var idx in edges)
+        {
+            if (results[idx].coverage <= maxCoveragePercent)
+                return (results[idx].h, results[idx].v);
+        }
+
+        if (results[center].coverage <= maxCoveragePercent)
+            return (results[center].h, results[center].v);
+
+        var best = results.OrderBy(r => r.coverage).First();
+        return (best.h, best.v);
+    }
+
+    private float CalculateCoverageAt(SKBitmap mask, float horizontal, float vertical,
+        SKRect clockBounds, int screenWidth, int screenHeight)
+    {
+        if (mask.Width == 0 || mask.Height == 0)
+            return 0;
+
+        int x = (int)(screenWidth * horizontal - clockBounds.Width / 2 - clockBounds.Left);
+        int y = (int)(screenHeight * vertical);
+
+        int marginX = (int)(clockBounds.Width * 0.2);
+        int marginY = (int)(clockBounds.Height * 0.2);
+
+        int startX = Math.Max(0, x - marginX);
+        int startY = Math.Max(0, (int)(y - clockBounds.Height - marginY));
+        int endX = Math.Min(screenWidth, x + (int)clockBounds.Width + marginX);
+        int endY = Math.Min(screenHeight, y + marginY);
+
+        int totalPixels = (endX - startX) * (endY - startY);
+        if (totalPixels <= 0) return 0;
+
+        int foregroundPixels = 0;
+        for (int py = startY; py < endY; py++)
+        {
+            for (int px = startX; px < endX; px++)
+            {
+                if (px >= 0 && px < mask.Width && py >= 0 && py < mask.Height)
+                {
+                    if (mask.GetPixel(px, py).Alpha > 128)
+                        foregroundPixels++;
+                }
+            }
+        }
+
+        return (float)foregroundPixels / totalPixels;
     }
 }

@@ -1,4 +1,5 @@
 using DepthClockWallpaper.Models;
+using Microsoft.Extensions.Options;
 using Microsoft.ML.OnnxRuntime;
 using Microsoft.ML.OnnxRuntime.Tensors;
 using SkiaSharp;
@@ -9,48 +10,26 @@ namespace DepthClockWallpaper.Core;
 /// Runs depth inference using the Depth-Anything-V2 ONNX model
 /// and produces foreground masks based on depth separation.
 /// </summary>
-public sealed class DepthEngine : IDisposable
+public sealed class DepthEngine
 {
     private static readonly float[] Mean = { 0.485f, 0.456f, 0.406f };
     private static readonly float[] Std = { 0.229f, 0.224f, 0.225f };
 
-    private readonly InferenceSession _session;
-    private readonly AppConfig _config;
-    private bool _disposed;
+    private readonly IOptionsMonitor<AppConfig> _config;
 
-    public DepthEngine(string modelPath, AppConfig config)
+    public DepthEngine(IOptionsMonitor<AppConfig> config)
     {
+        _config = config;
+        var modelPath = config.CurrentValue.Model.Path;
         if (!File.Exists(modelPath))
             throw new FileNotFoundException($"ONNX model not found at: {modelPath}");
-
-        Console.WriteLine($"Initializing DepthEngine");
-        Console.WriteLine($"Model: {modelPath}");
-        Console.WriteLine($"GPU enabled: {config.Model.UseGPU}");
-
-        var options = new SessionOptions
-        {
-            GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL
-        };
-
-        if (config.Model.UseGPU)
-        {
-            options.AppendExecutionProvider_DML(0);
-            Console.WriteLine("✓ DirectML GPU acceleration enabled");
-        }
-        else
-        {
-            Console.WriteLine("✓ CPU inference enabled");
-        }
-
-        _session = new InferenceSession(modelPath, options);
-        _config = config;
     }
 
     /// <summary>
     /// Produces a soft foreground mask from an image.
     /// Caller owns the returned bitmap.
     /// </summary>
-    public SKBitmap ExtractForegroundMask(SKBitmap image, float? manualThreshold = null)
+    public SKBitmap ExtractForegroundMask(SKBitmap image)
     {
         var depthMap = InferDepth(image);
 
@@ -63,7 +42,10 @@ public sealed class DepthEngine : IDisposable
                 return CreateTransparentMask(image.Width, image.Height);
             }
 
-            float threshold = manualThreshold ?? CalculateOptimalThreshold(depthMap);
+            float threshold = _config.CurrentValue.Depth.Threshold
+                is EDepthThresholdMode.Manual
+                ? _config.CurrentValue.Depth.ThresholdPercentile : CalculateOptimalThreshold(depthMap);
+
             Console.WriteLine($"Depth threshold: {threshold:F4}");
 
             var mask = CreateForegroundMask(depthMap, threshold);
@@ -184,6 +166,7 @@ public sealed class DepthEngine : IDisposable
         }
         catch (Exception ex)
         {
+            CrashLogger.Log(ex);
             Console.WriteLine($"[DEBUG] Failed to save depth map: {ex.Message}");
         }
     }
@@ -197,25 +180,44 @@ public sealed class DepthEngine : IDisposable
         using var resized = ResizeForModel(source);
         var inputTensor = CreateInputTensor(resized);
 
-        using var results = _session.Run([
+        // Load session
+        var modelPath = _config.CurrentValue.Model.Path;
+        var options = new SessionOptions
+        {
+            GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL
+        };
+
+        if (_config.CurrentValue.Model.UseGPU)
+        {
+            options.AppendExecutionProvider_DML(0);
+            Console.WriteLine("✓ DirectML GPU acceleration enabled");
+        }
+        else
+        {
+            Console.WriteLine("✓ CPU inference enabled");
+        }
+
+        using var session = new InferenceSession(modelPath, options);
+        using var results = session.Run([
             NamedOnnxValue.CreateFromTensor("input", inputTensor)
         ]);
 
         var output = results[0].AsEnumerable<float>().ToArray();
+        var inputSize = _config.CurrentValue.Model.InputSize;
 
-        var depth518 = new float[_config.Model.InputSize, _config.Model.InputSize];
-        for (int y = 0; y < _config.Model.InputSize; y++)
+        var depth518 = new float[inputSize, inputSize];
+        for (int y = 0; y < inputSize; y++)
         {
-            for (int x = 0; x < _config.Model.InputSize; x++)
+            for (int x = 0; x < inputSize; x++)
             {
-                depth518[y, x] = output[y * _config.Model.InputSize + x];
+                depth518[y, x] = output[y * inputSize + x];
             }
         }
 
         return ResizeDepthMap(
             depth518,
-            _config.Model.InputSize,
-            _config.Model.InputSize,
+            inputSize,
+            inputSize,
             source.Height,
             source.Width
         );
@@ -225,22 +227,25 @@ public sealed class DepthEngine : IDisposable
     {
         if (image == null || image.IsEmpty)
             throw new InvalidOperationException("Invalid source bitmap");
+
+        var inputSize = _config.CurrentValue.Model.InputSize;
         var resized = image.Resize(
-            new SKImageInfo(_config.Model.InputSize, _config.Model.InputSize),
-            SKFilterQuality.High
+            new SKImageInfo(inputSize, inputSize),
+            SKSamplingOptions.Default
         );
         return resized ?? throw new InvalidOperationException("Image resize failed.");
     }
 
     private DenseTensor<float> CreateInputTensor(SKBitmap image)
     {
+        var inputSize = _config.CurrentValue.Model.InputSize;
         var tensor = new DenseTensor<float>(
-            new[] { 1, 3, _config.Model.InputSize, _config.Model.InputSize }
+            [1, 3, inputSize, inputSize]
         );
 
-        for (int y = 0; y < _config.Model.InputSize; y++)
+        for (int y = 0; y < inputSize; y++)
         {
-            for (int x = 0; x < _config.Model.InputSize; x++)
+            for (int x = 0; x < inputSize; x++)
             {
                 var p = image.GetPixel(x, y);
 
@@ -289,7 +294,7 @@ public sealed class DepthEngine : IDisposable
     /// Finds a depth cutoff separating foreground from background
     /// using percentile-based histogram slicing.
     /// </summary>
-    private static float CalculateOptimalThreshold(float[,] depthMap)
+    private float CalculateOptimalThreshold(float[,] depthMap)
     {
         int h = depthMap.GetLength(0);
         int w = depthMap.GetLength(1);
@@ -307,7 +312,7 @@ public sealed class DepthEngine : IDisposable
 
         Array.Sort(values);
 
-        int index = (int)(values.Length * 0.70f);
+        int index = (int)(values.Length * (1.0f - _config.CurrentValue.Depth.ThresholdPercentile));
         return values[index];
     }
 
@@ -336,19 +341,5 @@ public sealed class DepthEngine : IDisposable
         }
 
         return mask;
-    }
-
-    // -------------------------
-    // Lifetime
-    // -------------------------
-
-    public void Dispose()
-    {
-        if (_disposed) return;
-
-        _session.Dispose();
-        _disposed = true;
-
-        GC.SuppressFinalize(this);
     }
 }

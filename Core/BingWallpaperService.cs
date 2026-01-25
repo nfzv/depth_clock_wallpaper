@@ -1,5 +1,9 @@
 using DepthClockWallpaper.Models;
+using System;
+using System.IO;
+using System.Net.Http;
 using System.Text.Json;
+using System.Threading.Tasks;
 
 namespace DepthClockWallpaper.Core;
 
@@ -47,7 +51,7 @@ public class BingWallpaperService
             };
 
             // Construct full resolution URL
-            bingImage.Url = $"https://www.bing.com{bingImage.Url}_1920x1080.jpg";
+            bingImage.Url = $"https://www.bing.com{bingImage.Url}_UHD.jpg";
 
             // Download and cache the image
             await DownloadAndCacheImageAsync(bingImage);

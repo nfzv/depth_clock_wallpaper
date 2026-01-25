@@ -69,10 +69,6 @@ $buildArgs = @(
     "--verbosity", "minimal"
 )
 
-if ($Configuration -eq "Release") {
-    $buildArgs += @("-p:PublishSingleFile=true")
-    $buildArgs += @("-p:SelfContained=true")
-}
 Write-Host "Running command: " + $buildArgs
 & dotnet $buildArgs
 
