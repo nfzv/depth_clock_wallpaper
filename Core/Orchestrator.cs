@@ -95,6 +95,6 @@ public class Orchestrator(IOptionsMonitor<AppConfig> configuration, DepthEngine 
             _clockTimer.Start();
 
             Console.WriteLine($"✓ Clock timer started ({configuration.CurrentValue.Performance.UpdateInterval}ms interval)");
-        });
+        }).ConfigureAwait(false);
     }
 }

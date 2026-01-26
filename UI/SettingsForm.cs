@@ -57,6 +57,9 @@ public partial class SettingsForm : Form
     private TextBox _debugPathTextBox;
     private Button _viewCrashLogsButton;
 
+    // Flag to prevent heavy operations during initialization
+    private bool _isInitializing = true;
+
     public SettingsForm(Orchestrator orchestrator, IOptionsMonitor<AppConfig> config, IWritableOptions<AppConfig> writableConfig)
     {
         _orchestrator = orchestrator;
@@ -69,24 +72,15 @@ public partial class SettingsForm : Form
             InitializeTrayIcon();
             LoadSettingsToUI();
 
-            // Load wallpaper based on mode
-            Task.Run(() =>
-            {
-                try
-                {
-                    _orchestrator.UpdateWallpaper();
-                    _orchestrator.Start();
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"Failed to load initial wallpaper: {ex.Message}");
-                }
-            });
-
             // Hide the main settings window initially
             WindowState = FormWindowState.Minimized;
             ShowInTaskbar = false;
             Visible = false;
+
+            // Defer heavy initialization to Load event to prevent UI freeze
+            Load += OnFormLoad;
+
+            Task.Run(() => _orchestrator.Start());
         }
         catch (Exception ex)
         {
@@ -103,7 +97,7 @@ public partial class SettingsForm : Form
         Text = "DepthClockWallpaper Settings";
         Size = new Size(700, 850);
         StartPosition = FormStartPosition.CenterScreen;
-        Icon = new Icon("icon.ico");
+        Icon = LoadApplicationIcon();
         BackColor = Color.FromArgb(245, 245, 245);
         Font = new Font("Segoe UI", 9F);
 
@@ -280,8 +274,8 @@ public partial class SettingsForm : Form
         var styleLayout = CreateFormLayout();
 
         styleLayout.Controls.Add(CreateLabel("Font Family:"), 0, 0);
-        var availableFonts = GetSystemFonts();
-        _fontFamilyComboBox = CreateComboBox(availableFonts);
+        // Start with placeholder - fonts will be loaded asynchronously in OnFormLoad
+        _fontFamilyComboBox = CreateComboBox(new[] { "Loading fonts..." });
         styleLayout.Controls.Add(_fontFamilyComboBox, 1, 0);
 
         styleLayout.Controls.Add(CreateLabel("Font Style:"), 0, 1);
@@ -455,8 +449,21 @@ public partial class SettingsForm : Form
         scrollPanel.Controls.Add(mainPanel);
         Controls.Add(scrollPanel);
 
-        ModeChanged(null, null);
+        // Don't call ModeChanged here - defer to Load event to prevent UI freeze
+        // ModeChanged(null, null);
         UpdatePositionControlsEnabled();
+    }
+
+    private async void OnFormLoad(object? sender, EventArgs e)
+    {
+        // Now safe to run initialization that may trigger async operations
+        _isInitializing = false;
+
+        // Trigger mode-specific initialization (e.g., Bing wallpaper check)
+        ModeChanged(null, null);
+
+        // Load system fonts asynchronously to avoid blocking UI
+        await LoadFontsAsync();
     }
 
     // Helper methods for consistent styling
@@ -562,7 +569,7 @@ public partial class SettingsForm : Form
     {
         _trayIcon = new NotifyIcon
         {
-            Icon = new Icon("icon.ico"),
+            Icon = LoadApplicationIcon(),
             Text = "DepthClockWallpaper",
             Visible = true
         };
@@ -695,28 +702,65 @@ public partial class SettingsForm : Form
 
     private async void CheckForBingUpdates(object? sender, EventArgs? e)
     {
+        // Skip if still initializing to prevent UI freeze during startup
+        if (_isInitializing)
+        {
+            _lastBingUpdateLabel.Text = "Will check after startup...";
+            _lastBingUpdateLabel.ForeColor = Color.Gray;
+            return;
+        }
+
         try
         {
             var bingService = new BingWallpaperService();
-            var latestImage = await bingService.GetLatestImageAsync();
+            var latestImage = await bingService.GetLatestImageAsync().ConfigureAwait(false);
 
-            if (latestImage != null)
+            // Update UI on UI thread
+            if (InvokeRequired)
             {
-                _lastBingUpdateLabel.Text = $"Updated: {latestImage.Date:yyyy-MM-dd HH:mm}";
-                _lastBingUpdateLabel.ForeColor = Color.Green;
+                Invoke(() => UpdateBingStatusLabel(latestImage));
+            }
+            else
+            {
+                UpdateBingStatusLabel(latestImage);
+            }
 
-                // Check if we're in Bing mode and need to reload
-                if (_config.CurrentValue.Wallpaper.Mode == EWallpaperMode.Bing)
-                {
-                    Console.WriteLine("Bing image updated, reloading wallpaper...");
-                    _orchestrator.UpdateWallpaper();
-                }
+            // Check if we're in Bing mode and need to reload - run on background thread!
+            if (latestImage != null && _config.CurrentValue.Wallpaper.Mode == EWallpaperMode.Bing)
+            {
+                Console.WriteLine("Bing image updated, reloading wallpaper on background thread...");
+                await Task.Run(() => _orchestrator.UpdateWallpaper()).ConfigureAwait(false);
             }
         }
         catch (Exception ex)
         {
-            _lastBingUpdateLabel.Text = $"Error: {ex.Message}";
-            _lastBingUpdateLabel.ForeColor = Color.Red;
+            if (InvokeRequired)
+            {
+                Invoke(() =>
+                {
+                    _lastBingUpdateLabel.Text = $"Error: {ex.Message}";
+                    _lastBingUpdateLabel.ForeColor = Color.Red;
+                });
+            }
+            else
+            {
+                _lastBingUpdateLabel.Text = $"Error: {ex.Message}";
+                _lastBingUpdateLabel.ForeColor = Color.Red;
+            }
+        }
+    }
+
+    private void UpdateBingStatusLabel(BingImage? latestImage)
+    {
+        if (latestImage != null)
+        {
+            _lastBingUpdateLabel.Text = $"Updated: {latestImage.Date:yyyy-MM-dd HH:mm}";
+            _lastBingUpdateLabel.ForeColor = Color.Green;
+        }
+        else
+        {
+            _lastBingUpdateLabel.Text = "No image available";
+            _lastBingUpdateLabel.ForeColor = Color.Orange;
         }
     }
 
@@ -1081,6 +1125,38 @@ public partial class SettingsForm : Form
         base.Dispose(disposing);
     }
 
+    /// <summary>
+    /// Loads the application icon, trying multiple sources to avoid blocking file I/O.
+    /// </summary>
+    private static Icon LoadApplicationIcon()
+    {
+        try
+        {
+            // First try to extract from the executable (fastest, no file I/O for separate file)
+            var exeIcon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
+            if (exeIcon != null)
+                return exeIcon;
+        }
+        catch
+        {
+            // Ignore and try fallback
+        }
+
+        try
+        {
+            // Fallback to icon.ico file if it exists
+            if (File.Exists("icon.ico"))
+                return new Icon("icon.ico");
+        }
+        catch
+        {
+            // Ignore and use system default
+        }
+
+        // Last resort: use system application icon
+        return SystemIcons.Application;
+    }
+
     private static string[] GetSystemFonts()
     {
         try
@@ -1094,8 +1170,52 @@ public partial class SettingsForm : Form
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"⚠️ Failed to load system fonts: {ex.Message}");
+            Console.WriteLine($"Failed to load system fonts: {ex.Message}");
             return new[] { "Segoe UI", "Arial", "Times New Roman" };
+        }
+    }
+
+    /// <summary>
+    /// Loads system fonts asynchronously to prevent UI freeze during startup.
+    /// </summary>
+    private async Task LoadFontsAsync()
+    {
+        try
+        {
+            var fonts = await Task.Run(() => GetSystemFonts()).ConfigureAwait(false);
+
+            if (InvokeRequired)
+            {
+                Invoke(() => PopulateFontComboBox(fonts));
+            }
+            else
+            {
+                PopulateFontComboBox(fonts);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Failed to load fonts asynchronously: {ex.Message}");
+        }
+    }
+
+    private void PopulateFontComboBox(string[] fonts)
+    {
+        var currentSelection = _config.CurrentValue.Clock.Style.FontFamily;
+
+        _fontFamilyComboBox.Items.Clear();
+        _fontFamilyComboBox.Items.AddRange(fonts);
+
+        // Restore the configured font selection
+        var index = _fontFamilyComboBox.Items.IndexOf(currentSelection);
+        if (index >= 0)
+        {
+            _fontFamilyComboBox.SelectedIndex = index;
+        }
+        else if (_fontFamilyComboBox.Items.Count > 0)
+        {
+            // Default to first font if configured font not found
+            _fontFamilyComboBox.SelectedIndex = 0;
         }
     }
 }
