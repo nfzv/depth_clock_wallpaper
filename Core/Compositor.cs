@@ -1,10 +1,6 @@
 using DepthClockWallpaper.Models;
 using Microsoft.Extensions.Options;
 using SkiaSharp;
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
 
 namespace DepthClockWallpaper.Core;
 
@@ -81,6 +77,75 @@ public class Compositor(IOptionsMonitor<AppConfig> config)
         var result = SKBitmap.FromImage(surface.Snapshot());
         Console.WriteLine("✓ Frame compositing complete");
         return result;
+    }
+
+    /// <summary>
+    /// OPTIMIZED: Renders only the clock layer on a transparent background.
+    /// This is used for fast-path rendering with cached layers.
+    /// </summary>
+    public SKBitmap RenderClockLayer(int width, int height, string timeText, SKBitmap? foregroundMask = null)
+    {
+        var info = new SKImageInfo(width, height, SKColorType.Rgba8888, SKAlphaType.Premul);
+        using var surface = SKSurface.Create(info);
+        var canvas = surface.Canvas;
+
+        // Clear with transparent background
+        canvas.Clear(SKColors.Transparent);
+
+        // Draw clock
+        DrawClock(canvas, timeText, width, height, foregroundMask);
+
+        return SKBitmap.FromImage(surface.Snapshot());
+    }
+
+    /// <summary>
+    /// OPTIMIZED: Composites pre-rendered layers together.
+    /// Fast-path: wallpaper + clockLayer + blurredMask (no inference needed).
+    /// </summary>
+    public SKBitmap CompositeLayers(SKBitmap wallpaper, SKBitmap clockLayer, SKBitmap? blurredMask = null)
+    {
+        var info = new SKImageInfo(wallpaper.Width, wallpaper.Height);
+        using var surface = SKSurface.Create(info);
+        var canvas = surface.Canvas;
+
+        // Step 1: Draw base wallpaper
+        canvas.DrawBitmap(wallpaper, 0, 0);
+
+        // Step 2: Draw clock layer on top
+        canvas.DrawBitmap(clockLayer, 0, 0);
+
+        // Step 3: Apply blurred foreground mask if provided
+        if (blurredMask != null && HasMaskAnyForegroundPixels(blurredMask))
+        {
+            ApplyBlurredForegroundMask(canvas, wallpaper, blurredMask);
+        }
+
+        return SKBitmap.FromImage(surface.Snapshot());
+    }
+
+    /// <summary>
+    /// Creates a blurred foreground mask from a raw depth mask.
+    /// This is separated out so it can be cached.
+    /// </summary>
+    public SKBitmap CreateBlurredMask(SKBitmap depthMask, int targetWidth, int targetHeight)
+    {
+        // Resize mask to target dimensions if needed
+        SKBitmap mask = depthMask;
+        if (depthMask.Width != targetWidth || depthMask.Height != targetHeight)
+        {
+            mask = depthMask.Resize(
+                new SKImageInfo(targetWidth, targetHeight),
+                SKSamplingOptions.Default
+            );
+        }
+
+        // Apply Gaussian blur for soft edges
+        var blurredMask = ApplyGaussianBlur(mask, config.CurrentValue.Depth.MaskBlur);
+
+        if (mask != depthMask)
+            mask.Dispose();
+
+        return blurredMask;
     }
 
     private static void SaveDebugImage(SKBitmap bitmap, string basePath, string name)
@@ -202,7 +267,7 @@ public class Compositor(IOptionsMonitor<AppConfig> config)
         Console.WriteLine($"Text bounds: Width={bounds.Width:F1}, Height={bounds.Height:F1}");
         Console.WriteLine($"Time text: '{timeText}'");
 
-        canvas.DrawText(timeText, x, y, SKTextAlign.Center, font, paint);
+        canvas.DrawText(timeText, x, y, SKTextAlign.Left, font, paint);
     }
 
     /// <summary>
@@ -233,6 +298,19 @@ public class Compositor(IOptionsMonitor<AppConfig> config)
             SaveDebugImage(blurredMask, debugPath, "4a_blurred_mask");
         }
 
+        ApplyBlurredForegroundMask(canvas, original, blurredMask, debugPath);
+
+        blurredMask.Dispose();
+
+        if (mask != depthMask)
+            mask.Dispose();
+    }
+
+    /// <summary>
+    /// Applies a pre-blurred foreground mask (optimized for cached mask usage).
+    /// </summary>
+    private void ApplyBlurredForegroundMask(SKCanvas canvas, SKBitmap original, SKBitmap blurredMask, string? debugPath = null)
+    {
         // Create temporary surface for foreground with premultiplied alpha
         // This is critical for proper alpha blending with DstIn blend mode
         var foregroundInfo = new SKImageInfo(original.Width, original.Height, SKColorType.Rgba8888, SKAlphaType.Premul);
@@ -266,11 +344,6 @@ public class Compositor(IOptionsMonitor<AppConfig> config)
         // Now draw the masked foreground ON TOP of the clock layer
         // This will hide the clock behind foreground objects
         canvas.DrawSurface(foregroundSurface, 0, 0);
-
-        blurredMask.Dispose();
-
-        if (mask != depthMask)
-            mask.Dispose();
     }
 
     /// <summary>

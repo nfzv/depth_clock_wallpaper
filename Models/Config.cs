@@ -96,4 +96,14 @@ public class PerformanceConfig
     public string ExecutionProvider { get; set; } = "DirectML";
     public string DebugPath { get; set; } = "debug/";
     public bool EnableDebugMode { get; set; } = false;
+    
+    /// <summary>
+    /// Custom cache directory path. If empty, uses default temp location.
+    /// </summary>
+    public string CacheDirectory { get; set; } = "";
+    
+    /// <summary>
+    /// Whether to preload the ONNX session on startup (improves first-run performance).
+    /// </summary>
+    public bool PreloadSessionOnStartup { get; set; } = true;
 }
