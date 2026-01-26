@@ -80,7 +80,11 @@ public partial class SettingsForm : Form
             // Defer heavy initialization to Load event to prevent UI freeze
             Load += OnFormLoad;
 
-            Task.Run(() => _orchestrator.Start());
+            Task.Run(() =>
+            {
+                _orchestrator.UpdateWallpaper();
+                _orchestrator.Start();
+            });
         }
         catch (Exception ex)
         {

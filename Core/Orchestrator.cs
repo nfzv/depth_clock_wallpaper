@@ -95,7 +95,7 @@ public class Orchestrator(IOptionsMonitor<AppConfig> configuration, DepthEngine 
         var configHash = CacheManager.ComputeConfigHash(configuration.CurrentValue);
 
         // Check if cache is valid
-        bool cacheValid = configuration.CurrentValue.Performance.CacheDepthMask 
+        bool cacheValid = configuration.CurrentValue.Performance.CacheDepthMask
             && _cacheManager.IsCacheValid(sourceImagePath, configHash);
 
         if (cacheValid)
@@ -103,7 +103,7 @@ public class Orchestrator(IOptionsMonitor<AppConfig> configuration, DepthEngine 
             // ====== FAST PATH: Use cached layers ======
             Console.WriteLine("🚀 [FAST PATH] Using cached layers (no inference needed)");
             UpdateWallpaperFastPath(sourceImagePath);
-            
+
             var elapsed = (DateTime.Now - startTime).TotalMilliseconds;
             Console.WriteLine($"✓ Wallpaper update complete in {elapsed:F0}ms (FAST PATH)");
         }
@@ -112,7 +112,7 @@ public class Orchestrator(IOptionsMonitor<AppConfig> configuration, DepthEngine 
             // ====== SLOW PATH: Run inference and cache results ======
             Console.WriteLine("🐢 [SLOW PATH] Running inference and caching results...");
             UpdateWallpaperSlowPath(sourceImagePath, configHash);
-            
+
             var elapsed = (DateTime.Now - startTime).TotalMilliseconds;
             Console.WriteLine($"✓ Wallpaper update complete in {elapsed:F0}ms (SLOW PATH - cached for future)");
         }
@@ -143,9 +143,9 @@ public class Orchestrator(IOptionsMonitor<AppConfig> configuration, DepthEngine 
 
             // Render only the clock layer (very fast)
             using var clockLayer = compositor.RenderClockLayer(
-                cachedWallpaper.Width, 
-                cachedWallpaper.Height, 
-                timeText, 
+                cachedWallpaper.Width,
+                cachedWallpaper.Height,
+                timeText,
                 cachedBlurredMask);
 
             // Composite layers together (fast)
@@ -163,7 +163,7 @@ public class Orchestrator(IOptionsMonitor<AppConfig> configuration, DepthEngine 
             Console.WriteLine($"❌ Fast path failed: {ex.Message}");
             cachedWallpaper?.Dispose();
             cachedBlurredMask?.Dispose();
-            
+
             // Fall back to slow path
             var configHash = CacheManager.ComputeConfigHash(configuration.CurrentValue);
             UpdateWallpaperSlowPath(sourceImagePath, configHash);
@@ -196,8 +196,8 @@ public class Orchestrator(IOptionsMonitor<AppConfig> configuration, DepthEngine 
         // Create blurred mask for caching
         Console.WriteLine("Creating blurred mask...");
         using var blurredMask = compositor.CreateBlurredMask(
-            foregroundMask, 
-            newWallpaperOriginal.Width, 
+            foregroundMask,
+            newWallpaperOriginal.Width,
             newWallpaperOriginal.Height);
         OnCacheProgress("Saving cache...", 85);
 
