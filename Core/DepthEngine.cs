@@ -9,7 +9,7 @@ namespace DepthClockWallpaper.Core;
 /// <summary>
 /// Runs depth inference using the Depth-Anything-V2 ONNX model
 /// and produces foreground masks based on depth separation.
-/// Implements session persistence for dramatic performance improvement.
+/// Implements session persistence with configurable timeout for memory optimization.
 /// </summary>
 public sealed class DepthEngine : IDisposable
 {
@@ -20,6 +20,7 @@ public sealed class DepthEngine : IDisposable
     private InferenceSession? _session;
     private readonly object _sessionLock = new();
     private bool _disposed;
+    private DateTime _lastSessionUse = DateTime.MinValue;
 
     public DepthEngine(IOptionsMonitor<AppConfig> config)
     {
@@ -33,6 +34,51 @@ public sealed class DepthEngine : IDisposable
     /// Gets whether the inference session is initialized.
     /// </summary>
     public bool IsInitialized => _session != null;
+
+    /// <summary>
+    /// Gets the configured keep-alive duration for the session.
+    /// </summary>
+    private TimeSpan SessionKeepAlive => _config.CurrentValue.Performance.SessionKeepAliveMinutes == -1
+        ? TimeSpan.MaxValue
+        : TimeSpan.FromMinutes(_config.CurrentValue.Performance.SessionKeepAliveMinutes);
+
+    /// <summary>
+    /// Checks if the session has expired and disposes it if so.
+    /// Called periodically by the Orchestrator's cleanup timer.
+    /// </summary>
+    public void CleanupExpiredSession()
+    {
+        if (_disposed) return;
+
+        var keepAliveMinutes = _config.CurrentValue.Performance.SessionKeepAliveMinutes;
+
+        // -1 means keep forever
+        if (keepAliveMinutes == -1) return;
+
+        lock (_sessionLock)
+        {
+            if (_session == null) return;
+
+            var elapsed = DateTime.Now - _lastSessionUse;
+            var keepAlive = TimeSpan.FromMinutes(keepAliveMinutes);
+
+            if (elapsed > keepAlive)
+            {
+                _session.Dispose();
+                _session = null;
+                Console.WriteLine($"🗑️ ONNX session expired after {elapsed.TotalMinutes:F1} minutes of inactivity (freed ~150-500MB)");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Gets the time since the session was last used (for diagnostics).
+    /// </summary>
+    public TimeSpan? GetSessionIdleTime()
+    {
+        if (_session == null) return null;
+        return DateTime.Now - _lastSessionUse;
+    }
 
     /// <summary>
     /// Produces a soft foreground mask from an image.
@@ -185,18 +231,18 @@ public sealed class DepthEngine : IDisposable
     // -------------------------
 
     /// <summary>
-    /// Gets or creates the inference session (lazy initialization with persistence).
-    /// This is a critical optimization - reusing the session saves 200-500ms per inference.
+    /// Gets or creates the inference session (lazy initialization with smart keep-alive).
+    /// Session will be automatically disposed after the configured idle timeout.
     /// </summary>
     private InferenceSession GetOrCreateSession()
     {
-        if (_session != null)
-            return _session;
-
         lock (_sessionLock)
         {
             if (_session != null)
+            {
+                _lastSessionUse = DateTime.Now;
                 return _session;
+            }
 
             var modelPath = _config.CurrentValue.Model.Path;
             var options = new SessionOptions
@@ -215,8 +261,36 @@ public sealed class DepthEngine : IDisposable
             }
 
             _session = new InferenceSession(modelPath, options);
-            Console.WriteLine("✓ ONNX inference session initialized (will be reused)");
+            _lastSessionUse = DateTime.Now;
+
+            var keepAliveMinutes = _config.CurrentValue.Performance.SessionKeepAliveMinutes;
+            var keepAliveMsg = keepAliveMinutes == -1
+                ? "kept forever"
+                : keepAliveMinutes == 0
+                    ? "disposed immediately after use"
+                    : $"expires after {keepAliveMinutes} min idle";
+
+            Console.WriteLine($"✓ ONNX session initialized ({keepAliveMsg})");
             return _session;
+        }
+    }
+
+    /// <summary>
+    /// Disposes the session immediately if configured for immediate disposal (keepAlive = 0).
+    /// Called after each inference operation.
+    /// </summary>
+    private void DisposeSessionIfImmediate()
+    {
+        if (_config.CurrentValue.Performance.SessionKeepAliveMinutes != 0) return;
+
+        lock (_sessionLock)
+        {
+            if (_session != null)
+            {
+                _session.Dispose();
+                _session = null;
+                Console.WriteLine("🗑️ ONNX session disposed immediately (SessionKeepAliveMinutes=0)");
+            }
         }
     }
 
@@ -225,7 +299,7 @@ public sealed class DepthEngine : IDisposable
         using var resized = ResizeForModel(source);
         var inputTensor = CreateInputTensor(resized);
 
-        // Use persistent session instead of creating a new one
+        // Use persistent session with smart keep-alive
         var session = GetOrCreateSession();
         using var results = session.Run([
             NamedOnnxValue.CreateFromTensor("input", inputTensor)
@@ -242,6 +316,9 @@ public sealed class DepthEngine : IDisposable
                 depth518[y, x] = output[y * inputSize + x];
             }
         }
+
+        // Dispose immediately if configured (SessionKeepAliveMinutes = 0)
+        DisposeSessionIfImmediate();
 
         return ResizeDepthMap(
             depth518,

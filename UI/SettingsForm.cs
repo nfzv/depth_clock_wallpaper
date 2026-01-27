@@ -57,6 +57,12 @@ public partial class SettingsForm : Form
     private TextBox _debugPathTextBox;
     private Button _viewCrashLogsButton;
 
+    // Memory optimization controls
+    private ComboBox _sessionKeepAliveComboBox;
+
+    // Memory optimization: reuse BingWallpaperService instead of creating new one each time
+    private BingWallpaperService? _bingService;
+
     // Flag to prevent heavy operations during initialization
     private bool _isInitializing = true;
 
@@ -374,6 +380,31 @@ public partial class SettingsForm : Form
             Font = new Font("Segoe UI", 9F)
         };
         perfLayout.Controls.Add(_debugPathTextBox, 1, 2);
+
+        // Session Keep-Alive setting (memory optimization)
+        perfLayout.Controls.Add(CreateLabel("AI Session Memory:"), 0, 3);
+        _sessionKeepAliveComboBox = new ComboBox
+        {
+            DropDownStyle = ComboBoxStyle.DropDownList,
+            Width = 200,
+            Font = new Font("Segoe UI", 9F)
+        };
+        _sessionKeepAliveComboBox.Items.AddRange(new object[]
+        {
+            "Dispose immediately (minimum memory)",
+            "Keep for 1 minute",
+            "Keep for 5 minutes (recommended)",
+            "Keep for 10 minutes",
+            "Keep for 30 minutes",
+            "Keep forever (maximum performance)"
+        });
+        _sessionKeepAliveComboBox.SelectedIndex = 2; // Default: 5 minutes
+        var sessionTip = new ToolTip();
+        sessionTip.SetToolTip(_sessionKeepAliveComboBox, 
+            "Controls how long the AI depth model stays in memory after use.\n" +
+            "Lower values save memory (150-500MB) but may cause brief delays when wallpaper changes.\n" +
+            "Higher values keep the model ready but use more memory.");
+        perfLayout.Controls.Add(_sessionKeepAliveComboBox, 1, 3);
 
         perfGroup.Controls.Add(perfLayout);
         mainPanel.Controls.Add(perfGroup);
@@ -716,8 +747,9 @@ public partial class SettingsForm : Form
 
         try
         {
-            var bingService = new BingWallpaperService();
-            var latestImage = await bingService.GetLatestImageAsync().ConfigureAwait(false);
+            // Reuse BingWallpaperService instance to avoid HttpClient leak
+            _bingService ??= new BingWallpaperService();
+            var latestImage = await _bingService.GetLatestImageAsync().ConfigureAwait(false);
 
             // Update UI on UI thread
             if (InvokeRequired)
@@ -874,6 +906,19 @@ public partial class SettingsForm : Form
         _debugPathTextBox.Text = _config.CurrentValue.Performance.DebugPath;
         _debugPathTextBox.Enabled = _enableDebugModeCheckBox.Checked;
 
+        // Session keep-alive setting (memory optimization)
+        var keepAlive = _config.CurrentValue.Performance.SessionKeepAliveMinutes;
+        _sessionKeepAliveComboBox.SelectedIndex = keepAlive switch
+        {
+            0 => 0,   // Dispose immediately
+            1 => 1,   // 1 minute
+            5 => 2,   // 5 minutes (default)
+            10 => 3,  // 10 minutes
+            30 => 4,  // 30 minutes
+            -1 => 5,  // Keep forever
+            _ => 2    // Default to 5 minutes for any other value
+        };
+
         // Depth settings
         _thresholdComboBox.SelectedIndex = _config.CurrentValue.Depth.Threshold == EDepthThresholdMode.Auto ? 0 : 1;
         _thresholdPercentileBox.Value = (decimal)_config.CurrentValue.Depth.ThresholdPercentile;
@@ -988,6 +1033,18 @@ public partial class SettingsForm : Form
                 config.Performance.CacheDepthMask = _cacheDepthMaskCheckBox.Checked;
                 config.Performance.EnableDebugMode = _enableDebugModeCheckBox.Checked;
                 config.Performance.DebugPath = _debugPathTextBox.Text;
+
+                // Session keep-alive (memory optimization)
+                config.Performance.SessionKeepAliveMinutes = _sessionKeepAliveComboBox.SelectedIndex switch
+                {
+                    0 => 0,   // Dispose immediately
+                    1 => 1,   // 1 minute
+                    2 => 5,   // 5 minutes (default)
+                    3 => 10,  // 10 minutes
+                    4 => 30,  // 30 minutes
+                    5 => -1,  // Keep forever
+                    _ => 5    // Default to 5 minutes
+                };
 
                 // Depth settings
                 config.Depth.Threshold = _thresholdComboBox.SelectedIndex == 0 ? EDepthThresholdMode.Auto : EDepthThresholdMode.Manual;
@@ -1125,6 +1182,7 @@ public partial class SettingsForm : Form
         {
             _trayIcon?.Dispose();
             _bingUpdateTimer?.Dispose();
+            _bingService?.Dispose();  // Fix HttpClient leak
         }
         base.Dispose(disposing);
     }

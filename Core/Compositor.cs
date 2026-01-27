@@ -169,7 +169,8 @@ public class Compositor(IOptionsMonitor<AppConfig> config)
     private static void SaveDebugImage(SKSurface surface, string basePath, string name)
     {
         using var image = surface.Snapshot();
-        SaveDebugImage(SKBitmap.FromImage(image), basePath, name);
+        using var bitmap = SKBitmap.FromImage(image);  // Fix memory leak
+        SaveDebugImage(bitmap, basePath, name);
     }
 
     /// <summary>

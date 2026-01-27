@@ -169,8 +169,8 @@ public sealed class CacheManager : IDisposable
             // Save blurred mask (lossless PNG)
             SaveBitmapAsPng(blurredMask, GetBlurredMaskPath());
 
-            // Save wallpaper (high-quality JPEG to save space)
-            SaveBitmapAsJpeg(wallpaper, GetWallpaperCachePath(), 95);
+            // Save wallpaper (optimized JPEG - 85 quality is visually identical but ~40% smaller)
+            SaveBitmapAsJpeg(wallpaper, GetWallpaperCachePath(), 85);
 
             // Save metadata
             var metadata = new CacheMetadata

@@ -106,4 +106,12 @@ public class PerformanceConfig
     /// Whether to preload the ONNX session on startup (improves first-run performance).
     /// </summary>
     public bool PreloadSessionOnStartup { get; set; } = true;
+    
+    /// <summary>
+    /// How long to keep the ONNX session in memory after last use (in minutes).
+    /// Set to 0 to dispose immediately after each use (minimum memory).
+    /// Set to -1 to keep forever (maximum performance, higher memory).
+    /// Default is 5 minutes (balanced).
+    /// </summary>
+    public int SessionKeepAliveMinutes { get; set; } = 5;
 }

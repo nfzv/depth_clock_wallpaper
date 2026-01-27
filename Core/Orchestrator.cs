@@ -8,6 +8,7 @@ namespace DepthClockWallpaper.Core;
 public class Orchestrator(IOptionsMonitor<AppConfig> configuration, DepthEngine depthEngine, Compositor compositor) : IDisposable
 {
     private Timer? _clockTimer;
+    private Timer? _sessionCleanupTimer;
     private readonly CacheManager _cacheManager = new();
     private bool _disposed;
 
@@ -279,7 +280,44 @@ public class Orchestrator(IOptionsMonitor<AppConfig> configuration, DepthEngine 
             _clockTimer.Start();
 
             Console.WriteLine($"✓ Clock timer started ({configuration.CurrentValue.Performance.UpdateInterval}ms interval)");
+
+            // Start session cleanup timer (checks every 60 seconds)
+            StartSessionCleanupTimer();
         }).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Starts a background timer that periodically checks if the ONNX session should be disposed.
+    /// This is key to reducing idle memory usage.
+    /// </summary>
+    private void StartSessionCleanupTimer()
+    {
+        var keepAliveMinutes = configuration.CurrentValue.Performance.SessionKeepAliveMinutes;
+        
+        // Don't start cleanup timer if session should be kept forever
+        if (keepAliveMinutes == -1)
+        {
+            Console.WriteLine("✓ Session cleanup timer disabled (SessionKeepAliveMinutes=-1, kept forever)");
+            return;
+        }
+
+        // Check every 60 seconds if session should be disposed
+        _sessionCleanupTimer = new Timer(60000);
+        _sessionCleanupTimer.Elapsed += (s, e) => 
+        {
+            try
+            {
+                depthEngine.CleanupExpiredSession();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"⚠️ Session cleanup error: {ex.Message}");
+            }
+        };
+        _sessionCleanupTimer.AutoReset = true;
+        _sessionCleanupTimer.Start();
+
+        Console.WriteLine($"✓ Session cleanup timer started (checks every 60s, expires after {keepAliveMinutes} min idle)");
     }
 
     public void Dispose()
@@ -291,6 +329,8 @@ public class Orchestrator(IOptionsMonitor<AppConfig> configuration, DepthEngine 
 
         _clockTimer?.Stop();
         _clockTimer?.Dispose();
+        _sessionCleanupTimer?.Stop();
+        _sessionCleanupTimer?.Dispose();
         _cacheManager?.Dispose();
 
         Console.WriteLine("✓ Orchestrator disposed");
