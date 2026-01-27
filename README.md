@@ -19,8 +19,7 @@ A Windows desktop application that places your live clock within the three-dimen
 - **Customizable Clock**: Fonts, colors, shadows, position, and time format
 - **Daily Bing Wallpapers**: Automatically fetches beautiful Bing homepage images
 - **System Tray Operation**: Runs quietly in the background with minimal footprint
-- **Auto Clock Positioning**: Automatically finds the best position where the clock is least likely to be hidden by foreground objects
-- **Multiple Positioning Strategies**: Choose between Lowest Coverage, Edges First, or Smart Hybrid positioning algorithms
+- **Auto Clock Positioning**: Automatically positions the clock to achieve your desired level of hiding behind foreground objects
 
 ## How It Works
 
@@ -58,11 +57,7 @@ Right-click the DepthClockWallpaper icon in your system tray to access:
 - **Clock Style**: Customize font, color, size, shadows, and position
 - **Position Mode**:
   - **Auto Position Mode**: Automatically finds optimal clock position based on depth analysis
-  - **Max Coverage**: Sets the maximum allowed foreground coverage percentage (default: 30%)
-  - **Strategy**: Choose positioning algorithm:
-    - *Lowest Coverage*: Always picks position with least foreground coverage
-    - *Edges First*: Prefers corners and edges, falls back to lowest coverage
-    - *Smart Hybrid*: Tries corners → edges → center, then falls back to lowest coverage
+  - **Target Coverage**: Sets how much of the clock you want hidden behind foreground objects (0% = fully visible, 50% = half hidden, 100% = maximally hidden)
 - **Depth Settings**: Adjust foreground detection threshold and mask blur
 - **Performance**: Toggle GPU acceleration and configure update intervals
 
@@ -150,15 +145,15 @@ Enable debug mode to save intermediate images for troubleshooting:
    - `4_raw_mask.png`: Binary foreground mask before blur
    - `4a_blurred_mask.png`: Softened mask with blur applied
 
-### Clock Being Hidden
-If the clock is being hidden behind foreground objects:
+### Controlling Clock Visibility
+To adjust how much of the clock is hidden behind foreground objects:
 
-1. **Enable Auto Position Mode**: The clock will automatically move to positions with less foreground coverage
-2. **Lower Max Coverage Setting**: Reduces the acceptable coverage percentage (try 20% or 15%)
-3. **Change Positioning Strategy**: 
-   - *Edges First* often works well as foreground objects are usually near the center
-   - *Smart Hybrid* provides a balance between aesthetics and visibility
-4. **Adjust Threshold Percentile**: A lower value makes the mask more selective (fewer objects considered "foreground")
+1. **Enable Auto Position Mode**: The clock will automatically position itself based on your target coverage
+2. **Adjust Target Coverage**: 
+   - Lower values (0-30%) keep the clock mostly visible
+   - Medium values (40-60%) create a balanced semi-hidden effect
+   - Higher values (70-100%) maximize the clock hiding behind objects
+3. **Adjust Threshold Percentile**: A lower value makes the mask more selective (fewer objects considered "foreground")
 
 ## FAQ
 
@@ -171,11 +166,12 @@ A: Yes. In settings, switch to "Custom" mode and select your preferred image pat
 **Q: Does this work with animated wallpapers?**
 A: No, DepthClockWallpaper currently only supports static images. Animated wallpaper support is not planned but could be explored as a future enhancement. Depth-Anything-V2 does support video processing, though it's still theoretical. 
 
-**Q: The clock is still being hidden behind objects even with a high threshold percentile setting**
-A: See the Troubleshooting section above for detailed solutions. The key recommendations are:
-1. Enable "Auto Position Mode" for automatic position optimization
-2. Try a lower "Max Coverage" percentage setting
-3. Use "Edges First" or "Smart Hybrid" positioning strategy
+**Q: How do I control how much of the clock is hidden?**
+A: Use the "Target Coverage" slider in Auto Position Mode:
+- Set to 0% for a fully visible clock
+- Set to 50% for a balanced semi-hidden effect
+- Set to 100% to maximize hiding behind foreground objects
+You can also adjust the Threshold Percentile to control which objects are considered "foreground"
 
 ## License
 

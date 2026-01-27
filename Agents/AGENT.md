@@ -106,7 +106,7 @@ AppConfig
 ├── WallpaperConfig (Mode=Bing, Path, LastBingUpdate)
 ├── ClockConfig
 │   ├── Format (default: "HH:mm")
-│   ├── PositionConfig (Horizontal, Vertical, AutoEnabled, MaxCoveragePercent, Strategy)
+│   ├── PositionConfig (Horizontal, Vertical, AutoEnabled, TargetCoveragePercent=0.50)
 │   └── ClockStyleConfig (FontFamily, FontStyle, FontSize, Color, Shadow*)
 ├── DepthConfig (ThresholdMode, ThresholdPercentile, MaskBlur)
 └── PerformanceConfig
@@ -118,7 +118,6 @@ AppConfig
 
 ### Key Enums:
 - `EWallpaperMode`: Custom, Bing
-- `EPositionStrategy`: LowestCoverage, EdgesFirst, SmartHybrid
 - `EDepthThresholdMode`: Manual, Auto
 
 ## Rendering Pipeline
@@ -160,7 +159,7 @@ AppConfig
 
 ### Modifying clock rendering:
 1. `Compositor.DrawClock()` - Clock text rendering
-2. `Compositor.CalculateOptimalPosition()` - Auto-positioning algorithms
+2. `Compositor.CalculateOptimalPosition()` - Auto-positioning algorithm (finds position closest to target coverage)
 3. `Compositor.RenderFrame()` / `CompositeLayers()` - Full compositing
 
 ### Adding a new wallpaper source:
