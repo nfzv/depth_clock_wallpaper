@@ -28,7 +28,9 @@ DepthClockWallpaper uses a depth estimation model Depth-Anything-V2 to split a g
 
 ## Installation
 
-
+1. **Prerequisites**
+   - Windows 10/11 (x64)
+   - .NET 8.0 Runtime ([Download](https://dotnet.microsoft.com/download/dotnet/8.0))
 
 2. **Setup**
    - Download the latest release
@@ -76,54 +78,66 @@ Right-click the DepthClockWallpaper icon in your system tray to access:
 
 ```
 DepthClockWallpaper/
-├── Core/                          # Core business logic
-│   ├── Compositor.cs             # Composites clock onto wallpaper with depth masking
-│   ├── DepthEngine.cs            # AI depth estimation using ONNX model
-│   ├── HotWallpaperOrchestrator.cs # Main orchestrator with hot-reload support
-│   ├── HotConfigManager.cs       # Configuration management with event system
-│   ├── WallpaperSetter.cs        # Windows wallpaper setting (multiple methods)
-│   ├── BingWallpaperService.cs   # Fetches daily Bing homepage images
-│   └── Win32.cs                  # Win32 API interop for WorkerW manipulation
-├── Models/                        # Data models
-│   ├── Config.cs                 # Configuration classes (AppConfig, ClockConfig, etc.)
-│   └── WallpaperPaths.cs         # Centralized temp file paths
-├── UI/                            # Windows Forms UI
-│   ├── SettingsForm.cs           # Settings dialog with all controls
-│   └── WallpaperForm.resx        # UI resources
-├── Python/                        # Model export utilities
-│   ├── export_model.py           # Exports Depth-Anything-V2 to ONNX format
-│   └── pyproject.toml            # Python dependencies
-├── Scripts/                       # PowerShell scripts
-│   ├── run.ps1                   # Application runner
-│   └── compile.ps1               # Build script
-├── depth_anything_v2_small.onnx   # Embedded AI model (ONNX format)
-├── DepthClockWallpaper.csproj    # .NET 8 project file
-├── DepthClockWallpaper.sln       # Solution file
-├── Program.cs                    # Entry point
-└── icon.ico                      # Application icon
+├── Core/                              # Core business logic
+│   ├── Orchestrator.cs                # Main coordinator with timer and cache logic
+│   ├── DepthEngine.cs                 # AI depth estimation using ONNX model
+│   ├── Compositor.cs                  # Composites clock onto wallpaper with depth masking
+│   ├── CacheManager.cs                # Depth mask caching for performance
+│   ├── WallpaperSetter.cs             # Windows wallpaper setting (multiple methods)
+│   ├── BingWallpaperService.cs        # Fetches daily Bing homepage images
+│   ├── CrashLogger.cs                 # Centralized crash logging
+│   └── Win32.cs                       # Win32 API interop
+├── Models/                            # Data models
+│   ├── Config.cs                      # Configuration classes (AppConfig, ClockConfig, etc.)
+│   ├── WallpaperPaths.cs              # Centralized temp file paths
+│   └── WritableJsonOptions.cs         # Hot-reload config writer
+├── UI/                                # Windows Forms UI
+│   └── SettingsForm.cs                # Settings dialog with system tray
+├── Python/                            # Model export utilities
+│   ├── export_model.py                # Exports Depth-Anything-V2 to ONNX format
+│   └── pyproject.toml                 # Python dependencies (uv)
+├── Scripts/                           # PowerShell scripts
+│   ├── run.ps1                        # Quick start script (build + run)
+│   ├── compile.ps1                    # Full build/publish script
+│   └── install_depth_anything.ps1     # Model repository setup
+├── depth_anything_v2_small.onnx       # AI model (ONNX format)
+├── depth_anything_v2_small.onnx.data  # AI model weights
+├── DepthClockWallpaper.csproj         # .NET 8 project file
+├── DepthClockWallpaper.sln            # Solution file
+├── Program.cs                         # Entry point with DI setup
+└── icon.ico                           # Application icon
 ```
 
 ### Tech Stack
 
-- **Runtime**: .NET 8.0
+- **Runtime**: .NET 8.0-windows
 - **UI Framework**: Windows Forms
 - **AI/ML**: Microsoft.ML.OnnxRuntime.DirectML 1.23.0
 - **Graphics**: SkiaSharp 3.119.1
+- **DI/Config**: Microsoft.Extensions.Hosting 10.0.2
 - **Model**: Depth-Anything-V2 Small (ViT-S encoder, 24.8M parameters)
 
 ### Building from Source
 
-```bash
+```powershell
 # Clone the repository
 git clone https://github.com/nfzv/DepthClockWallpaper.git
 cd DepthClockWallpaper
 
-# Run the PowerShell script
+# Quick start (builds model if needed, then builds and runs)
 .\Scripts\run.ps1
 
-# The idea is to build the model from depth_anything_v2 repository and produce .onnx files. You can either run export_model.py directly or run.ps1 that internally calls install_depth_anything.ps1 to do the same.
-# Once your model is near your executable or in root folder, you can run your app as usual e.g. dotnet run
+# Or build manually (requires ONNX model to exist)
+dotnet build -c Release
+dotnet run -c Release
 ```
+
+**Note:** The `run.ps1` script will automatically:
+1. Check for the ONNX model and export it if missing (requires [uv](https://docs.astral.sh/uv/) and Python)
+2. Build the project
+3. Run the application
+
+For manual model export, see `Python/export_model.py`.
 
 ## Troubleshooting
 
