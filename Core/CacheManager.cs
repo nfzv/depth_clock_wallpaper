@@ -271,8 +271,7 @@ public sealed class CacheManager : IDisposable
             config.Depth.Threshold,
             config.Model.InputSize,
             AutoPosition = config.Clock.Position.AutoEnabled,
-            MaxCoverage = config.Clock.Position.MaxCoveragePercent,
-            Strategy = config.Clock.Position.Strategy
+            TargetCoverage = config.Clock.Position.TargetCoveragePercent
         };
 
         var json = JsonSerializer.Serialize(relevantSettings);

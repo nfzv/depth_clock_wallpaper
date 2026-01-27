@@ -249,14 +249,14 @@ public class Compositor(IOptionsMonitor<AppConfig> config)
 
         if (config.CurrentValue.Clock.Position.AutoEnabled && foregroundMask != null && !foregroundMask.IsEmpty)
         {
-            var (h, v) = CalculateOptimalPosition(
+            var (h, v, coverage) = CalculateOptimalPosition(
                 foregroundMask, width, height, bounds,
-                config.CurrentValue.Clock.Position.MaxCoveragePercent);
+                config.CurrentValue.Clock.Position.TargetCoveragePercent);
 
             x = width * h - bounds.Width / 2 - bounds.Left;
             y = height * v;
 
-            Console.WriteLine($"[Auto] Position: H={h:P0}, V={v:P0}");
+            Console.WriteLine($"[Auto] Position: H={h:P0}, V={v:P0}, Coverage={coverage:P0} (target={config.CurrentValue.Clock.Position.TargetCoveragePercent:P0})");
         }
         else
         {
@@ -376,9 +376,19 @@ public class Compositor(IOptionsMonitor<AppConfig> config)
     }
 
 
-    private (float horizontal, float vertical) CalculateOptimalPosition(
+    /// <summary>
+    /// Finds the optimal position for the clock by selecting the candidate position
+    /// whose coverage is closest to the target coverage percentage.
+    /// </summary>
+    /// <param name="foregroundMask">The foreground depth mask</param>
+    /// <param name="screenWidth">Screen width in pixels</param>
+    /// <param name="screenHeight">Screen height in pixels</param>
+    /// <param name="clockBounds">Bounding rectangle of the clock text</param>
+    /// <param name="targetCoveragePercent">Desired coverage (0.0 = fully visible, 1.0 = maximally hidden)</param>
+    /// <returns>Tuple of (horizontal position, vertical position, actual coverage at that position)</returns>
+    private (float horizontal, float vertical, float coverage) CalculateOptimalPosition(
         SKBitmap foregroundMask, int screenWidth, int screenHeight,
-        SKRect clockBounds, float maxCoveragePercent)
+        SKRect clockBounds, float targetCoveragePercent)
     {
         var candidates = new[]
         {
@@ -393,65 +403,17 @@ public class Compositor(IOptionsMonitor<AppConfig> config)
         {
             float coverage = CalculateCoverageAt(foregroundMask, h, v, clockBounds, screenWidth, screenHeight);
             results.Add((h, v, coverage));
+            Console.WriteLine($"  Candidate ({h:F2}, {v:F2}): coverage={coverage:P1}");
         }
 
-        return config.CurrentValue.Clock.Position.Strategy switch
-        {
-            EPositionStrategy.EdgesFirst => FindBestEdgeFirst(results, maxCoveragePercent),
-            EPositionStrategy.SmartHybrid => FindSmartHybrid(results, maxCoveragePercent),
-            EPositionStrategy.LowestCoverage or _ => (
-                results.OrderBy(r => r.coverage).First().h,
-                results.OrderBy(r => r.coverage).First().v
-            )
-        };
-    }
+        // Find the position whose coverage is closest to the target
+        var best = results
+            .OrderBy(r => Math.Abs(r.coverage - targetCoveragePercent))
+            .First();
 
-    private (float h, float v) FindBestEdgeFirst(
-        List<(float h, float v, float coverage)> results, float maxCoveragePercent)
-    {
-        var edgePositions = new[] { 0, 2, 6, 8 };
-        var centerPositions = new[] { 4 };
+        Console.WriteLine($"  Selected ({best.h:F2}, {best.v:F2}) with coverage={best.coverage:P1} (target={targetCoveragePercent:P0})");
 
-        foreach (var idx in edgePositions)
-        {
-            if (results[idx].coverage <= maxCoveragePercent)
-                return (results[idx].h, results[idx].v);
-        }
-
-        foreach (var idx in centerPositions)
-        {
-            if (results[idx].coverage <= maxCoveragePercent)
-                return (results[idx].h, results[idx].v);
-        }
-
-        var best = results.OrderBy(r => r.coverage).First();
-        return (best.h, best.v);
-    }
-
-    private (float h, float v) FindSmartHybrid(
-        List<(float h, float v, float coverage)> results, float maxCoveragePercent)
-    {
-        var corners = new[] { 0, 2, 6, 8 };
-        var edges = new[] { 1, 3, 5, 7 };
-        var center = 4;
-
-        foreach (var idx in corners)
-        {
-            if (results[idx].coverage <= maxCoveragePercent)
-                return (results[idx].h, results[idx].v);
-        }
-
-        foreach (var idx in edges)
-        {
-            if (results[idx].coverage <= maxCoveragePercent)
-                return (results[idx].h, results[idx].v);
-        }
-
-        if (results[center].coverage <= maxCoveragePercent)
-            return (results[center].h, results[center].v);
-
-        var best = results.OrderBy(r => r.coverage).First();
-        return (best.h, best.v);
+        return (best.h, best.v, best.coverage);
     }
 
     private float CalculateCoverageAt(SKBitmap mask, float horizontal, float vertical,

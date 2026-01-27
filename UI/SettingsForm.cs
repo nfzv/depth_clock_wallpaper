@@ -45,11 +45,9 @@ public partial class SettingsForm : Form
     private NumericUpDown _fontSizeBox;
 
     private CheckBox _autoPositionCheckBox;
-    private TrackBar _maxCoverageSlider;
-    private Label _maxCoverageLabel;
-    private Label _maxCoverageValueLabel;
-    private ComboBox _positionStrategyComboBox;
-    private Label _positionStrategyLabel;
+    private TrackBar _targetCoverageSlider;
+    private Label _targetCoverageLabel;
+    private Label _targetCoverageValueLabel;
     private Label _manualPositionLabel;
 
     // Debug settings controls
@@ -209,47 +207,48 @@ public partial class SettingsForm : Form
         positionLayout.Controls.Add(_autoPositionCheckBox, 0, 1);
         positionLayout.Controls.Add(new Label(), 1, 1);
 
-        _positionStrategyLabel = CreateLabel("Strategy:");
-        positionLayout.Controls.Add(_positionStrategyLabel, 0, 2);
-        _positionStrategyComboBox = CreateComboBox(new[] { "Lowest Coverage", "Edges First", "Smart Hybrid" });
-        positionLayout.Controls.Add(_positionStrategyComboBox, 1, 2);
-
-        _maxCoverageLabel = CreateLabel("Max Coverage:");
-        positionLayout.Controls.Add(_maxCoverageLabel, 0, 3);
+        _targetCoverageLabel = CreateLabel("Target Coverage:");
+        positionLayout.Controls.Add(_targetCoverageLabel, 0, 2);
         var coveragePanel = new FlowLayoutPanel
         {
             FlowDirection = FlowDirection.LeftToRight,
             AutoSize = true,
             Margin = new Padding(0)
         };
-        _maxCoverageSlider = new TrackBar
+        _targetCoverageSlider = new TrackBar
         {
             Minimum = 0,
             Maximum = 100,
             TickFrequency = 10,
             Width = 250,
-            Value = (int)(_config.CurrentValue.Clock.Position.MaxCoveragePercent * 100)
+            Value = (int)(_config.CurrentValue.Clock.Position.TargetCoveragePercent * 100)
         };
-        _maxCoverageValueLabel = new Label
+        _targetCoverageValueLabel = new Label
         {
-            Text = $"{_maxCoverageSlider.Value}%",
+            Text = $"{_targetCoverageSlider.Value}%",
             AutoSize = true,
             Padding = new Padding(5, 6, 0, 0),
             Font = new Font("Segoe UI", 9F)
         };
-        _maxCoverageSlider.ValueChanged += (s, e) => _maxCoverageValueLabel.Text = $"{_maxCoverageSlider.Value}%";
-        coveragePanel.Controls.Add(_maxCoverageSlider);
-        coveragePanel.Controls.Add(_maxCoverageValueLabel);
-        positionLayout.Controls.Add(coveragePanel, 1, 3);
+        _targetCoverageSlider.ValueChanged += (s, e) => _targetCoverageValueLabel.Text = $"{_targetCoverageSlider.Value}%";
+        coveragePanel.Controls.Add(_targetCoverageSlider);
+        coveragePanel.Controls.Add(_targetCoverageValueLabel);
+        positionLayout.Controls.Add(coveragePanel, 1, 2);
+
+        // Tooltip explaining the new behavior
+        var coverageTip = new ToolTip();
+        coverageTip.SetToolTip(_targetCoverageSlider,
+            "How much of the clock should be hidden behind foreground objects.\n" +
+            "0% = fully visible, 50% = half hidden, 100% = maximally hidden.");
 
         _manualPositionLabel = CreateLabel("Manual Position (disabled in auto mode)");
         _manualPositionLabel.ForeColor = Color.Gray;
         _manualPositionLabel.Padding = new Padding(0, 15, 0, 0);
-        positionLayout.Controls.Add(_manualPositionLabel, 0, 4);
-        positionLayout.Controls.Add(new Label(), 1, 4);
+        positionLayout.Controls.Add(_manualPositionLabel, 0, 3);
+        positionLayout.Controls.Add(new Label(), 1, 3);
 
         _horizontalLabel = CreateLabel("Horizontal: 50%");
-        positionLayout.Controls.Add(_horizontalLabel, 0, 5);
+        positionLayout.Controls.Add(_horizontalLabel, 0, 4);
         _horizontalSlider = new TrackBar
         {
             Minimum = 0,
@@ -259,10 +258,10 @@ public partial class SettingsForm : Form
             Value = (int)(_config.CurrentValue.Clock.Position.Horizontal * 100)
         };
         _horizontalSlider.ValueChanged += (s, e) => _horizontalLabel.Text = $"Horizontal: {_horizontalSlider.Value}%";
-        positionLayout.Controls.Add(_horizontalSlider, 1, 5);
+        positionLayout.Controls.Add(_horizontalSlider, 1, 4);
 
         _verticalLabel = CreateLabel("Vertical: 50%");
-        positionLayout.Controls.Add(_verticalLabel, 0, 6);
+        positionLayout.Controls.Add(_verticalLabel, 0, 5);
         _verticalSlider = new TrackBar
         {
             Minimum = 0,
@@ -272,7 +271,7 @@ public partial class SettingsForm : Form
             Value = (int)(_config.CurrentValue.Clock.Position.Vertical * 100)
         };
         _verticalSlider.ValueChanged += (s, e) => _verticalLabel.Text = $"Vertical: {_verticalSlider.Value}%";
-        positionLayout.Controls.Add(_verticalSlider, 1, 6);
+        positionLayout.Controls.Add(_verticalSlider, 1, 5);
 
         positionGroup.Controls.Add(positionLayout);
         mainPanel.Controls.Add(positionGroup);
@@ -660,20 +659,14 @@ public partial class SettingsForm : Form
     {
         bool autoEnabled = _autoPositionCheckBox?.Checked ?? true;
 
-        if (_positionStrategyComboBox != null)
-            _positionStrategyComboBox.Enabled = autoEnabled;
+        if (_targetCoverageSlider != null)
+            _targetCoverageSlider.Enabled = autoEnabled;
 
-        if (_positionStrategyLabel != null)
-            _positionStrategyLabel.Enabled = autoEnabled;
+        if (_targetCoverageLabel != null)
+            _targetCoverageLabel.Enabled = autoEnabled;
 
-        if (_maxCoverageSlider != null)
-            _maxCoverageSlider.Enabled = autoEnabled;
-
-        if (_maxCoverageLabel != null)
-            _maxCoverageLabel.Enabled = autoEnabled;
-
-        if (_maxCoverageValueLabel != null)
-            _maxCoverageValueLabel.Enabled = autoEnabled;
+        if (_targetCoverageValueLabel != null)
+            _targetCoverageValueLabel.Enabled = autoEnabled;
 
         if (_horizontalSlider != null)
         {
@@ -888,9 +881,8 @@ public partial class SettingsForm : Form
 
         // Position
         _autoPositionCheckBox.Checked = _config.CurrentValue.Clock.Position.AutoEnabled;
-        _positionStrategyComboBox.SelectedIndex = (int)_config.CurrentValue.Clock.Position.Strategy;
-        _maxCoverageSlider.Value = (int)(_config.CurrentValue.Clock.Position.MaxCoveragePercent * 100);
-        _maxCoverageValueLabel.Text = $"{_maxCoverageSlider.Value}%";
+        _targetCoverageSlider.Value = (int)(_config.CurrentValue.Clock.Position.TargetCoveragePercent * 100);
+        _targetCoverageValueLabel.Text = $"{_targetCoverageSlider.Value}%";
         _horizontalSlider.Value = (int)(_config.CurrentValue.Clock.Position.Horizontal * 100);
         _verticalSlider.Value = (int)(_config.CurrentValue.Clock.Position.Vertical * 100);
 
@@ -1010,8 +1002,7 @@ public partial class SettingsForm : Form
                 // Clock settings
                 config.Clock.Format = _timeFormatTextBox.Text;
                 config.Clock.Position.AutoEnabled = _autoPositionCheckBox.Checked;
-                config.Clock.Position.Strategy = (EPositionStrategy)_positionStrategyComboBox.SelectedIndex;
-                config.Clock.Position.MaxCoveragePercent = _maxCoverageSlider.Value / 100f;
+                config.Clock.Position.TargetCoveragePercent = _targetCoverageSlider.Value / 100f;
                 config.Clock.Position.Horizontal = _horizontalSlider.Value / 100f;
                 config.Clock.Position.Vertical = _verticalSlider.Value / 100f;
 

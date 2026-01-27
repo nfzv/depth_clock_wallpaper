@@ -69,8 +69,7 @@ public class Orchestrator(IOptionsMonitor<AppConfig> configuration, DepthEngine 
 
         // Invalidate if auto-positioning settings changed (affects mask generation)
         if (oldConfig.Clock.Position.AutoEnabled != newConfig.Clock.Position.AutoEnabled ||
-            oldConfig.Clock.Position.MaxCoveragePercent != newConfig.Clock.Position.MaxCoveragePercent ||
-            oldConfig.Clock.Position.Strategy != newConfig.Clock.Position.Strategy)
+            oldConfig.Clock.Position.TargetCoveragePercent != newConfig.Clock.Position.TargetCoveragePercent)
         {
             return true;
         }

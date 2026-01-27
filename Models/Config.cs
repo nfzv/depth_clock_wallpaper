@@ -35,13 +35,6 @@ public enum EWallpaperMode
     Bing
 }
 
-public enum EPositionStrategy
-{
-    LowestCoverage,
-    EdgesFirst,
-    SmartHybrid
-}
-
 public enum EDepthThresholdMode
 {
     Manual,
@@ -60,8 +53,12 @@ public class PositionConfig
     public float Vertical { get; set; } = 0.33f;
     public float Horizontal { get; set; } = 0.5f;
     public bool AutoEnabled { get; set; } = false;
-    public float MaxCoveragePercent { get; set; } = 0.30f;
-    public EPositionStrategy Strategy { get; set; } = EPositionStrategy.LowestCoverage;
+    /// <summary>
+    /// Target coverage percentage (0.0 to 1.0). The auto-positioning algorithm
+    /// finds the position where the clock coverage is closest to this target.
+    /// 0% = clock fully visible, 50% = half hidden, 100% = maximally hidden.
+    /// </summary>
+    public float TargetCoveragePercent { get; set; } = 0.50f;
 }
 
 public class ClockStyleConfig
