@@ -27,17 +27,13 @@ DepthClockWallpaper uses a depth estimation model Depth-Anything-V2 to split a g
 
 ## Installation
 
-1. **Prerequisites**
-   - Windows 10/11 (x64)
-   - .NET 8.0 Runtime ([Download](https://dotnet.microsoft.com/download/dotnet/8.0))
-
-2. **Setup**
+1. **Setup**
    - Download the latest release
    - Extract the ZIP file to your desired location
    - Run `DepthClockWallpaper.exe`
 
 
-3. **First Launch**
+2. **First Launch**
    - The app will appear in your system tray (bottom-right corner)
    - Right-click the tray icon to access settings
    - Configure your preferences and the app will set your wallpaper
