@@ -2,7 +2,7 @@
 
 A Windows desktop application that places your live clock within the three-dimensional depth of your wallpaper. Using AI-powered depth estimation, the app creates a stunning atmospheric effect where the clock appears to exist *behind* foreground objects while remaining visible in the background.
 
-> **Vibe Coded Project**: The code is rather chaotic, sorry about that. You can blame 'Big Pickle' and partially 'MiniMax M2.1 Free' model for that. I just wanted to practice agentic coding using OpenCode 😁
+> **Vibe Coded Project**: The code is rather chaotic, sorry about that. You can blame 'Big Pickle' and partially 'MiniMax M2.1 Free' model for that. I just wanted to practice agentic coding using OpenCode 😁. Though after a while I switched to Opus 4.5 and Sonnet 4.5 which were much better at cleaning up the codebase and fixing a lot of things.
 
 
 ## Examples
